@@ -375,6 +375,7 @@ begin
     where id = gid returning * into g;
   update public.profiles set rating = rating + change, games = games + 1 where id = g.white;
   update public.profiles set rating = rating - change, games = games + 1 where id = g.black;
+  if g.tournament is not null then perform private.tour_score(g); end if;
   return g;
 end $$;
 
@@ -517,12 +518,163 @@ language sql security definer set search_path = public as $$
   delete from public.challenges where creator = auth.uid() and game is null;
 $$;
 
+-- ---------------------------------------------------------------------
+-- Torneos online programados (formato arena)
+-- Durante el torneo, al terminar una partida te emparejan con otro jugador.
+-- Victoria 2 puntos, tablas 1. Con dos victorias seguidas, los puntos se doblan.
+-- ---------------------------------------------------------------------
+create table if not exists public.tournaments (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  description text not null default '',
+  time_control text not null,
+  starts_at timestamptz not null,
+  ends_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  unique (name, starts_at)
+);
+alter table public.tournaments enable row level security;
+drop policy if exists "torneos visibles" on public.tournaments;
+create policy "torneos visibles" on public.tournaments for select using (true);
+revoke insert, update, delete on public.tournaments from anon, authenticated;
+grant select on public.tournaments to anon, authenticated;
+
+create table if not exists public.tournament_players (
+  tournament_id uuid not null references public.tournaments (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  points int not null default 0,
+  games int not null default 0,
+  wins int not null default 0,
+  streak int not null default 0,
+  active boolean not null default true,
+  waiting_since timestamptz,
+  last_seen timestamptz,
+  last_opponent uuid,
+  joined_at timestamptz not null default now(),
+  primary key (tournament_id, user_id)
+);
+alter table public.tournament_players enable row level security;
+drop policy if exists "clasificaciones visibles" on public.tournament_players;
+create policy "clasificaciones visibles" on public.tournament_players for select using (true);
+revoke insert, update, delete on public.tournament_players from anon, authenticated;
+grant select on public.tournament_players to anon, authenticated;
+
+alter table public.games add column if not exists tournament uuid references public.tournaments (id);
+
+-- Calendario fijo (hora de Madrid): se rellena solo para los próximos 7 días
+create or replace function private.tour_ensure() returns void
+language plpgsql security definer set search_path = public, private as $$
+declare d date; base date := (now() at time zone 'Europe/Madrid')::date; s timestamptz;
+begin
+  for i in 0..7 loop
+    d := base + i;
+    s := (d + time '21:00') at time zone 'Europe/Madrid';
+    insert into public.tournaments (name, description, time_control, starts_at, ends_at)
+      values ('Arena Noctua', 'El torneo de cada noche. Una hora de partidas blitz.', '3+2', s, s + interval '60 minutes') on conflict do nothing;
+    if extract(isodow from d) = 3 then
+      s := (d + time '19:00') at time zone 'Europe/Madrid';
+      insert into public.tournaments (name, description, time_control, starts_at, ends_at)
+        values ('Arena Bala', 'Media hora de partidas de un minuto.', '1+0', s, s + interval '30 minutes') on conflict do nothing;
+    end if;
+    if extract(isodow from d) = 7 then
+      s := (d + time '18:00') at time zone 'Europe/Madrid';
+      insert into public.tournaments (name, description, time_control, starts_at, ends_at)
+        values ('Gran Arena del Domingo', 'El torneo grande de la semana. Hora y media de 5+3.', '5+3', s, s + interval '90 minutes') on conflict do nothing;
+    end if;
+  end loop;
+end $$;
+
+-- Torneos en juego, próximos y recientes
+create or replace function public.tour_list() returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+begin
+  perform private.tour_ensure();
+  return coalesce((
+    select jsonb_agg(x order by x.starts_at) from (
+      select t.*, (select count(*) from public.tournament_players p where p.tournament_id = t.id) as players,
+        exists (select 1 from public.tournament_players p where p.tournament_id = t.id and p.user_id = auth.uid() and p.active) as joined,
+        (select u.username from public.tournament_players p join public.profiles u on u.id = p.user_id
+           where p.tournament_id = t.id and t.ends_at < now() and p.games > 0 order by p.points desc, p.wins desc, p.joined_at limit 1) as winner
+      from public.tournaments t
+      where t.ends_at > now() - interval '2 days' and t.starts_at < now() + interval '3 days'
+    ) x), '[]'::jsonb);
+end $$;
+
+create or replace function public.tour_join(p_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare t public.tournaments;
+begin
+  if auth.uid() is null then raise exception 'Necesitas iniciar sesión'; end if;
+  select * into t from public.tournaments where id = p_id;
+  if t.id is null then raise exception 'Ese torneo no existe'; end if;
+  if now() > t.ends_at then raise exception 'El torneo ya ha terminado'; end if;
+  insert into public.tournament_players (tournament_id, user_id) values (p_id, auth.uid())
+    on conflict (tournament_id, user_id) do update set active = true;
+end $$;
+
+create or replace function public.tour_leave(p_id uuid) returns void
+language sql security definer set search_path = public as $$
+  update public.tournament_players set active = false, waiting_since = null where tournament_id = p_id and user_id = auth.uid();
+$$;
+
+-- Buscar rival dentro del torneo. La web lo llama cada 2 s mientras esperas.
+create or replace function public.tour_pair(p_id uuid) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare t public.tournaments; me public.tournament_players; opp public.tournament_players; g public.games; existing public.games; tc record; w uuid; b uuid;
+begin
+  select * into t from public.tournaments where id = p_id;
+  select * into me from public.tournament_players where tournament_id = p_id and user_id = auth.uid() for update;
+  if me.user_id is null or not me.active then raise exception 'No estás apuntado a este torneo'; end if;
+  select * into existing from public.games where status = 'playing' and auth.uid() in (white, black) order by created_at desc limit 1;
+  if existing.id is not null then return jsonb_build_object('game', existing.id); end if;
+  if now() < t.starts_at then return jsonb_build_object('state', 'not_started'); end if;
+  -- En el último minuto no empiezan partidas nuevas
+  if now() > t.ends_at - interval '1 minute' then return jsonb_build_object('state', 'finished'); end if;
+  update public.tournament_players set waiting_since = coalesce(waiting_since, now()), last_seen = now() where tournament_id = p_id and user_id = me.user_id;
+  select p.* into opp from public.tournament_players p
+    where p.tournament_id = p_id and p.user_id <> me.user_id and p.active and p.waiting_since is not null and p.last_seen > now() - interval '8 seconds'
+      and not exists (select 1 from public.games x where x.status = 'playing' and p.user_id in (x.white, x.black))
+    order by (p.user_id = me.last_opponent and p.last_opponent = me.user_id), abs(p.points - me.points), p.waiting_since
+    limit 1 for update skip locked;
+  if opp.user_id is null then return jsonb_build_object('state', 'waiting'); end if;
+  tc := private.tc_ms(t.time_control);
+  if random() < 0.5 then w := me.user_id; b := opp.user_id; else w := opp.user_id; b := me.user_id; end if;
+  insert into public.games (white, black, time_control, base_ms, inc_ms, white_ms, black_ms, white_rating, black_rating, tournament)
+    values (w, b, t.time_control, tc.base_ms, tc.inc_ms, tc.base_ms, tc.base_ms,
+      (select rating from public.profiles where id = w), (select rating from public.profiles where id = b), t.id)
+    returning * into g;
+  update public.tournament_players set waiting_since = null, last_opponent = opp.user_id where tournament_id = p_id and user_id = me.user_id;
+  update public.tournament_players set waiting_since = null, last_opponent = me.user_id where tournament_id = p_id and user_id = opp.user_id;
+  delete from public.mm_queue where user_id in (w, b);
+  return jsonb_build_object('game', g.id);
+end $$;
+
+-- Suma los puntos de una partida de torneo (la llama finish_game)
+create or replace function private.tour_score(g public.games) returns void
+language plpgsql security definer set search_path = public, private as $$
+declare t public.tournaments; side uuid; sc numeric; p public.tournament_players; pts int;
+begin
+  select * into t from public.tournaments where id = g.tournament;
+  if t.id is null or g.created_at > t.ends_at then return; end if;
+  foreach side in array array[g.white, g.black] loop
+    select * into p from public.tournament_players where tournament_id = t.id and user_id = side for update;
+    if p.user_id is null then continue; end if;
+    sc := case when g.result = '1/2-1/2' then 0.5 when (g.result = '1-0') = (side = g.white) then 1 else 0 end;
+    pts := case when sc = 1 then 2 when sc = 0.5 then 1 else 0 end * case when p.streak >= 2 and sc > 0 then 2 else 1 end;
+    update public.tournament_players set points = points + pts, games = games + 1, wins = wins + (sc = 1)::int,
+      streak = case when sc = 1 then streak + 1 else 0 end
+      where tournament_id = t.id and user_id = side;
+  end loop;
+end $$;
+
 -- Permisos: la web solo puede llamar a estas funciones
 revoke all on all functions in schema private from anon, authenticated, public;
 revoke execute on all functions in schema public from anon, public;
 grant execute on function public.adm_status, public.adm_start, public.adm_puzzle_move, public.adm_nim_move, public.adm_answer, public.adm_strike,
   public.update_profile, public.mm_find, public.mm_cancel, public.game_move, public.game_claim, public.game_resign, public.game_draw,
-  public.challenge_create, public.challenge_status, public.challenge_accept, public.challenge_cancel to authenticated;
+  public.challenge_create, public.challenge_status, public.challenge_accept, public.challenge_cancel,
+  public.tour_list, public.tour_join, public.tour_leave, public.tour_pair to authenticated;
+grant execute on function public.tour_list to anon;
 grant execute on function public.adm_status to anon;
 
 -- Problemas de la prueba (generados y verificados con Stockfish 19)

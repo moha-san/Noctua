@@ -511,7 +511,7 @@ function clocks(g: OnlineGame, now: number) {
   return { w: g.white_ms - (whiteTurn ? spent : 0), b: g.black_ms - (whiteTurn ? 0 : spent) };
 }
 
-function GameView({ id, me, onExit }: { id: string; me: string; onExit: (again: string | null) => void }) {
+export function GameView({ id, me, onExit, inTournament = false }: { id: string; me: string; onExit: (again: string | null) => void; inTournament?: boolean }) {
   const [g, setG] = useState<OnlineGame | null>(null);
   const [names, setNames] = useState<Record<string, Pick<Profile, "username" | "rating">>>({});
   const [now, setNow] = useState(Date.now());
@@ -806,8 +806,8 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: (again: 
                 {!spectator && myChange != null && <p className={cn("mt-3 font-serif text-[22px] tabular-nums", myChange > 0 ? "text-good" : myChange < 0 ? "text-bad" : "text-ink-3")}>{myChange > 0 ? "+" : ""}{myChange} Elo</p>}
                 <div className="mt-6 grid gap-2">
                   <Link href="/review?game=custom" onClick={() => saveReviewPgn(pgn())} className="btn-primary py-3"><Microscope className="h-4 w-4" /> Analizar partida</Link>
-                  {!spectator && <button className="btn-ghost py-3" onClick={() => onExit(g.time_control)}><Search className="h-4 w-4" /> Otra partida de {g.time_control}</button>}
-                  <button className="text-[13px] text-ink-3 underline-offset-4 hover:underline" onClick={() => onExit(null)}>Volver al inicio</button>
+                  {!spectator && !inTournament && <button className="btn-ghost py-3" onClick={() => onExit(g.time_control)}><Search className="h-4 w-4" /> Otra partida de {g.time_control}</button>}
+                  <button className="text-[13px] text-ink-3 underline-offset-4 hover:underline" onClick={() => onExit(null)}>{inTournament ? "Volver al torneo" : "Volver al inicio"}</button>
                 </div>
               </div>
             </div>

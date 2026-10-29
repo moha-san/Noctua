@@ -10,6 +10,8 @@ import { saveGame } from "@/lib/history";
 import { withHeaders } from "@/lib/reviewStore";
 import { RoundsLog, Standings } from "./Standings";
 import { TournamentGame } from "./TournamentGame";
+import { OnlineArenas } from "./OnlineArenas";
+import { backendConfigured } from "@/lib/backend/client";
 
 const KEY = "athenaeum-swiss";
 
@@ -52,12 +54,18 @@ export function TournamentHall() {
         <p className="label text-gold">Competición</p>
         <h2 className="mt-3 font-serif text-[36px] font-medium leading-tight text-ink sm:text-[48px]">Torneos</h2>
         <p className="mt-4 text-[15px] leading-relaxed text-ink-3">
-          Inscríbete en el torneo abierto y juega ronda a ronda con reloj. La clasificación se actualiza al terminar cada ronda.
+          Juega los torneos online del club con hora fija contra otros miembros, o practica en un torneo suizo contra el ordenador.
         </p>
       </section>
 
+      {backendConfigured && <OnlineArenas />}
+
+      <div>
+        <p className="label text-gold">Para practicar</p>
+        <h3 className="mt-2 font-serif text-[28px] text-ink">Torneos contra el ordenador</h3>
+      </div>
       <div className="grid gap-6 lg:grid-cols-2">
-        {TOURNAMENTS.map((x) => {
+        {TOURNAMENTS.filter((x) => x.status === "abierto").map((x) => {
           const st = STATUS[x.status];
           return (
             <article key={x.id} className={cn("card flex flex-col p-7", x.status === "abierto" && "ring-1 ring-gold/40")}>
