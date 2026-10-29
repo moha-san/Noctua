@@ -245,6 +245,10 @@ export function Board({ player, onMove, interactive = true, premoves = true, ...
       }
       return false;
     }
+    if (m.promotion && settings.autoQueen) {
+      onMove!(from, to, "q");
+      return true;
+    }
     onMove!(from, to);
     // En una coronación la pieza vuelve hasta que eliges en qué se convierte
     return !m.promotion;

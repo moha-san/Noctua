@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { Chess, type Square } from "chess.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, Copy, Eye, Flag, UserPlus, Handshake, Loader2, Microscope, Search, Wifi, X } from "lucide-react";
+import { Bot, Check, Copy, Eye, Flag, UserPlus, Handshake, Loader2, Microscope, RefreshCw, Search, Wifi, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { backendConfigured, rpc, sb, type Profile } from "@/lib/backend/client";
 import { refreshProfile, useAuth } from "@/hooks/useAuth";
-import { fmtClock as fmtShort } from "@/lib/play/levels";
+import { fmtClock as fmtShort, material } from "@/lib/play/levels";
 import { VARIANT_LABEL, tcLabel } from "@/lib/chess/chess960";
 import { playSound, soundForMove } from "@/lib/sound";
 import { saveReviewPgn, withHeaders } from "@/lib/reviewStore";
@@ -609,6 +609,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
   const [promo, setPromo] = useState<{ from: string; to: string } | null>(null);
   /** Jugada que se está mirando en la lista (null = posición actual) */
   const [view, setView] = useState<number | null>(null);
+  const [flipped, setFlipped] = useState(false);
   const lastLen = useRef(-1);
   const claiming = useRef(0);
 
@@ -707,6 +708,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      if (e.key === "f" || e.key === "F") setFlipped((f) => !f);
       if (e.key === "ArrowLeft") setView((v) => Math.max(0, (v ?? total) - 1));
       if (e.key === "ArrowRight") setView((v) => (v === null || v + 1 >= total ? null : v + 1));
     };
@@ -783,8 +785,10 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
   const opp = color === "w" ? g.black : g.white;
   const mine = color === "w" ? g.white : g.black;
   const nameOf = (uid: string, fallback: number | null) => ({ name: names[uid]?.username ?? "…", rating: fallback ?? names[uid]?.rating ?? 0 });
-  const top = { ...nameOf(opp, color === "w" ? g.black_rating : g.white_rating), ms: color === "w" ? t.b : t.w, active: g.status === "playing" && chess.turn() !== color };
-  const bottom = { ...nameOf(mine, color === "w" ? g.white_rating : g.black_rating), ms: color === "w" ? t.w : t.b, active: g.status === "playing" && chess.turn() === color };
+  const mat = material(chess.fen());
+  const oc = color === "w" ? "b" : "w";
+  const top = { captured: mat.captured[oc], adv: oc === "w" ? mat.score : -mat.score, ...nameOf(opp, color === "w" ? g.black_rating : g.white_rating), ms: color === "w" ? t.b : t.w, active: g.status === "playing" && chess.turn() !== color };
+  const bottom = { captured: mat.captured[color], adv: color === "w" ? mat.score : -mat.score, ...nameOf(mine, color === "w" ? g.white_rating : g.black_rating), ms: color === "w" ? t.w : t.b, active: g.status === "playing" && chess.turn() === color };
 
   const styles: Record<string, React.CSSProperties> = {};
   const hist = chess.history({ verbose: true });
@@ -817,12 +821,12 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1fr)_340px] xl:gap-12">
       <section className="mx-auto w-full max-w-[min(100%,calc(100dvh-280px))] space-y-3">
-        <PlayerBar {...top} />
+        <PlayerBar {...(flipped ? bottom : top)} />
         <div className="relative">
           <Board
             id="online"
             position={viewFen ?? chess.fen()}
-            boardOrientation={color === "w" ? "white" : "black"}
+            boardOrientation={(color === "w") !== flipped ? "white" : "black"}
             player={color}
             interactive={!spectator && g.status === "playing" && view === null}
             onMove={(from, to, promotion) => void send(from, to, promotion)}
@@ -853,12 +857,15 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
             </div>
           )}
         </div>
-        <PlayerBar {...bottom} />
+        <PlayerBar {...(flipped ? top : bottom)} />
       </section>
 
       <aside className="space-y-6">
         <div className="card p-6">
-          <p className="label">{g.time_control === "1d" ? "Correspondencia" : g.time_control}{g.variant === "chess960" ? " · Chess960" : ""} · {spectator ? "En directo" : "Online"}</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="label">{g.time_control === "1d" ? "Correspondencia" : g.time_control}{g.variant === "chess960" ? " · Chess960" : ""} · {spectator ? "En directo" : "Online"}</p>
+            <button className="rounded-full p-1.5 text-ink-4 transition hover:bg-paper-2 hover:text-ink" title="Girar el tablero (tecla F)" aria-label="Girar el tablero" onClick={() => setFlipped((f) => !f)}><RefreshCw className="h-4 w-4" /></button>
+          </div>
           <p className="mt-2 font-serif text-[20px] text-ink">
             {finished ? "Partida terminada" : spectator ? `Juegan las ${chess.turn() === "w" ? "blancas" : "negras"}` : pending ? "Enviando jugada…" : myTurn ? "Tu turno" : "Turno del rival"}
           </p>
@@ -917,10 +924,18 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
   );
 }
 
-function PlayerBar({ name, rating, ms, active }: { name: string; rating: number; ms: number; active: boolean }) {
+const GLYPH: Record<string, string> = { q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
+
+function PlayerBar({ name, rating, ms, active, captured = [], adv = 0 }: { name: string; rating: number; ms: number; active: boolean; captured?: string[]; adv?: number }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <p className="min-w-0 truncate font-serif text-[17px] text-ink">{name === "…" ? name : <Link href={profileHref(name)} className="hover:text-gold">{name}</Link>} <span className="text-[14px] text-ink-4">({rating})</span></p>
+      <div className="min-w-0">
+        <p className="truncate font-serif text-[17px] text-ink">{name === "…" ? name : <Link href={profileHref(name)} className="hover:text-gold">{name}</Link>} <span className="text-[14px] text-ink-4">({rating})</span></p>
+        <p className="flex h-[18px] items-center gap-px overflow-hidden text-[15px] leading-none text-ink-3" aria-label="Piezas capturadas">
+          {captured.map((p, i) => <span key={i}>{GLYPH[p]}</span>)}
+          {adv > 0 && <span className="ml-1.5 text-[12px] tabular-nums text-ink-4">+{adv}</span>}
+        </p>
+      </div>
       <span className={cn("rounded-lg px-3 py-1.5 font-serif text-[20px] tabular-nums ring-1", active ? (ms < 20000 ? "bg-bad/15 text-bad ring-bad/40" : "bg-ink text-paper ring-ink") : "bg-paper-2 text-ink-3 ring-line")}>{fmtClock(ms)}</span>
     </div>
   );

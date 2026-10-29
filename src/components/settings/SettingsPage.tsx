@@ -161,6 +161,7 @@ export function SettingsPage() {
           <div className="mt-4 divide-y divide-line border-t border-line">
             <Toggle label="Coordenadas" hint="Letras y números en el borde del tablero" checked={s.coordinates} onChange={(v) => set("coordinates", v)} />
             <Toggle label="Animaciones" hint="Las piezas se deslizan al mover" checked={s.animations} onChange={(v) => set("animations", v)} />
+            <Toggle label="Coronar siempre a dama" hint="Sin preguntar qué pieza quieres al llegar al final" checked={s.autoQueen} onChange={(v) => set("autoQueen", v)} />
             <Toggle label="Mostrar jugadas posibles" hint="Puntos en las casillas a las que puede ir la pieza que tocas" checked={s.legalHints} onChange={(v) => set("legalHints", v)} />
             {s.animations && (
               <div className="flex flex-wrap items-center justify-between gap-3 py-4">

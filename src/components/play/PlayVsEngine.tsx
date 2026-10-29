@@ -223,15 +223,26 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
   const [flipped, setFlipped] = useState(false);
   const [hint, setHint] = useState<{ from: string; to: string; fen: string } | null>(null);
   const [hints, setHints] = useState(0);
+  /** Jugada que se está repasando (null = posición actual) */
+  const [view, setView] = useState<number | null>(null);
+  const total = chess.history.length;
+  useEffect(() => setView(null), [total]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (e.key === "f" || e.key === "F") setFlipped((x) => !x);
+      if (e.key === "ArrowLeft") { e.preventDefault(); setView((v) => Math.max(0, (v ?? total) - 1)); }
+      if (e.key === "ArrowRight") { e.preventDefault(); setView((v) => (v === null || v + 1 >= total ? null : v + 1)); }
+      if (e.key === "ArrowUp") { e.preventDefault(); setView(total ? 0 : null); }
+      if (e.key === "ArrowDown") { e.preventDefault(); setView(null); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [total]);
+  const verbose = view === null ? null : chess.game.history({ verbose: true });
+  const viewFen = verbose ? (view === 0 ? verbose[0]?.before : verbose[view! - 1]?.after) ?? null : null;
+  const viewLast = verbose && view ? verbose[view - 1] : null;
   const lastEval = useRef(0);
   const plies = useRef(0);
 
@@ -426,13 +437,13 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
           <Seat color={botColor} />
           <Board
             id="play"
-            position={chess.fen}
+            position={viewFen ?? chess.fen}
             boardOrientation={(userColor === "w") !== flipped ? "white" : "black"}
             arrows={hint && hint.fen === chess.fen ? [{ startSquare: hint.from, endSquare: hint.to, color: "rgba(79, 122, 74, 0.85)" }] : []}
             player={userColor}
-            interactive={!over}
+            interactive={!over && view === null}
             onMove={(from, to, promotion) => (promotion ? chess.makeMove({ from, to, promotion }) : chess.onPieceDrop({ sourceSquare: from, targetSquare: to }))}
-            squareStyles={lastMoveStyles(chess.lastMove)}
+            squareStyles={lastMoveStyles(viewFen ? viewLast : chess.lastMove)}
           />
           {chess.promotion && <PromotionPicker color={chess.promotion.color} onPick={chess.completePromotion} />}
           <Seat color={userColor} />
@@ -470,15 +481,31 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
           {history.length === 0 && <p className="px-2 py-2 italic text-ink-4">{userColor === "w" ? "Te toca mover. Empiezas con blancas." : "El ordenador abre con blancas."}</p>}
           <ol className="grid grid-cols-[36px_1fr_1fr] gap-y-0.5">
             {Array.from({ length: Math.ceil(history.length / 2) }).map((_, i) => (
-              <li key={i} className={cn("contents", i % 2 === 1 && "[&>span]:bg-paper-2")}>
+              <li key={i} className={cn("contents", i % 2 === 1 && "[&>*]:bg-paper-2")}>
                 <span className="py-1 pl-2 italic text-ink-4">{i + 1}.</span>
-                <span className={cn("rounded-l px-2 py-1 text-ink", history.length - 1 === i * 2 && "font-semibold")}>{history[i * 2]}</span>
-                <span className={cn("rounded-r px-2 py-1 text-ink", history.length - 1 === i * 2 + 1 && "font-semibold")}>{history[i * 2 + 1] ?? ""}</span>
+                {[0, 1].map((k) => {
+                  const ply = i * 2 + k;
+                  const san = history[ply];
+                  const current = (view ?? history.length) === ply + 1;
+                  return san ? (
+                    <button key={k} onClick={() => setView(ply + 1 === history.length ? null : ply + 1)} className={cn("px-2 py-1 text-left text-ink transition hover:bg-gold/15", k ? "rounded-r" : "rounded-l", current && "bg-gold/20 font-semibold")}>{san}</button>
+                  ) : (
+                    <span key={k} />
+                  );
+                })}
               </li>
             ))}
           </ol>
         </div>
 
+        {history.length > 0 && (
+          <div className="flex items-center justify-center gap-1 border-t border-line px-4 py-2">
+            {([["⏮", "Inicio", () => setView(0)], ["‹", "Anterior", () => setView((v) => Math.max(0, (v ?? history.length) - 1))], ["›", "Siguiente", () => setView((v) => (v === null || v + 1 >= history.length ? null : v + 1))], ["⏭", "Posición actual", () => setView(null)]] as const).map(([g, l, fn]) => (
+              <button key={l} onClick={fn} title={l} aria-label={l} className="h-8 w-12 rounded-lg text-[18px] text-ink-3 transition hover:bg-paper-2 hover:text-ink">{g}</button>
+            ))}
+            {view !== null && <span className="ml-2 text-[12px] italic text-gold">Repasando</span>}
+          </div>
+        )}
         {notice && <p className="mx-4 mb-2 rounded-lg bg-paper-2 px-3 py-2 text-center text-[13px] italic text-ink-2">{notice}</p>}
 
         <div className="border-t border-line p-4">
