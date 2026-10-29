@@ -2,7 +2,14 @@
 <html lang="es">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0c0c0d" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Athenaeum" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
+<link rel="icon" type="image/png" href="icons/icon-192.png" />
 <title>Athenaeum</title>
 <meta name="description" content="Club de ajedrez: revisión de partidas con Stockfish, problemas y estadísticas. Gratis." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -31,6 +38,12 @@
 <body class="min-h-dvh font-sans">
 <div id="root"></div>
 <script>/*JS*/</script>
+<script>
+  // App instalable: solo cuando la web está publicada en https (no al abrir el archivo suelto)
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost") && !/claude\.ai|claudeusercontent/.test(location.host)) {
+    addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
+  }
+</script>
 <!-- El motor va al final para que la página se muestre antes de leerlo -->
 <script id="sf-js" type="text/plain">/*SFJS*/</script>
 <script id="sf-wasm" type="text/plain">/*SFWASM*/</script>
