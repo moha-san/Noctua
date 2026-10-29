@@ -15,7 +15,7 @@ type Public = {
   profile: { id: string; username: string; country: string; rating: number; games: number; status: string; member_number: number | null; created_at: string; bio: string; achievements: string[] };
   record: { wins: number; draws: number; losses: number; peak: number };
   history: { at: string; rating: number }[];
-  recent: { id: string; at: string; time_control: string; result: string | null; reason: string | null; moves: string[]; white: boolean; change: number | null; opponent: string; opponent_rating: number }[];
+  recent: { id: string; at: string; time_control: string; start_fen?: string | null; result: string | null; reason: string | null; moves: string[]; white: boolean; change: number | null; opponent: string; opponent_rating: number }[];
   medals: { name: string; at: string; rank: number; points: number }[];
   playing: string | null;
 };
@@ -158,7 +158,7 @@ export function ProfilePage({ username: usernameProp }: { username?: string | nu
                 {data.recent.filter((g) => g.result).map((g) => {
                   const score = g.result === "1/2-1/2" ? "draw" : (g.result === "1-0") === g.white ? "win" : "loss";
                   const pgn = () => {
-                    const c = new Chess();
+                    const c = new Chess(g?.start_fen ?? undefined);
                     for (const m of g.moves) c.move(m);
                     return withHeaders(c.pgn(), { Event: "Athenaeum online", White: g.white ? p.username : g.opponent, Black: g.white ? g.opponent : p.username, Result: g.result ?? "*", TimeControl: g.time_control });
                   };

@@ -283,6 +283,7 @@ create table if not exists public.mm_queue (
   time_control text not null,
   joined_at timestamptz not null default now()
 );
+alter table public.mm_queue add column if not exists variant text not null default 'standard';
 alter table public.mm_queue enable row level security;
 revoke all on public.mm_queue from anon, authenticated;
 
@@ -314,6 +315,33 @@ create policy "ver mis partidas" on public.games for select using (true);
 revoke insert, update, delete on public.games from anon, authenticated;
 grant select on public.games to anon, authenticated;
 
+-- Variantes: Chess960 (posición inicial al azar) y por correspondencia (1 día por jugada)
+alter table public.games add column if not exists variant text not null default 'standard';
+alter table public.games add column if not exists start_fen text;
+
+-- Posición inicial de Chess960: alfiles en casillas de distinto color y el rey entre las torres.
+-- Se juega sin enroque (la web usa chess.js, que no admite el enroque de Chess960).
+create or replace function private.fen960() returns text language plpgsql as $$
+declare r text[] := array['', '', '', '', '', '', '', '']; free int[]; i int; k int;
+begin
+  r[1 + 2 * floor(random() * 4)::int] := 'b';
+  r[2 + 2 * floor(random() * 4)::int] := 'b';
+  foreach k in array array[1, 2, 3] loop
+    select array_agg(x) into free from generate_series(1, 8) x where r[x] = '';
+    r[free[1 + floor(random() * array_length(free, 1))::int]] := case k when 1 then 'q' else 'n' end;
+  end loop;
+  select array_agg(x order by x) into free from generate_series(1, 8) x where r[x] = '';
+  r[free[1]] := 'r'; r[free[2]] := 'k'; r[free[3]] := 'r';
+  return array_to_string(r, '') || '/pppppppp/8/8/8/8/PPPPPPPP/' || upper(array_to_string(r, '')) || ' w - - 0 1';
+end $$;
+
+create or replace function private.valid_variant(v text) returns text language plpgsql immutable as $$
+begin
+  if v is null or v = '' then return 'standard'; end if;
+  if v not in ('standard', 'chess960') then raise exception 'Variante no válida'; end if;
+  return v;
+end $$;
+
 -- Datos para el juego limpio: tiempo de cada jugada, salidas de la pestaña y reclamaciones
 alter table public.games add column if not exists white_times int[] not null default '{}';
 alter table public.games add column if not exists black_times int[] not null default '{}';
@@ -339,37 +367,42 @@ do $$ begin
 end $$;
 
 create or replace function private.tc_ms(tc text, out base_ms int, out inc_ms int) language sql immutable as $$
-  select (split_part(tc, '+', 1)::int * 60000), (coalesce(nullif(split_part(tc, '+', 2), ''), '0')::int * 1000)
+  -- '1d' = por correspondencia: un día para cada jugada
+  select case when tc = '1d' then 86400000 else split_part(tc, '+', 1)::int * 60000 end,
+         case when tc = '1d' then 0 else coalesce(nullif(split_part(tc, '+', 2), ''), '0')::int * 1000 end
 $$;
 
 -- Buscar rival. Ventana de Elo que se amplía con la espera: ±100, +50 cada 10 s.
-create or replace function public.mm_find(p_tc text) returns jsonb
+drop function if exists public.mm_find(text);
+create or replace function public.mm_find(p_tc text, p_variant text default 'standard') returns jsonb
 language plpgsql security definer set search_path = public, private as $$
-declare me public.profiles; opp public.mm_queue; g public.games; t record; existing public.games; w uuid; b uuid;
+declare me public.profiles; opp public.mm_queue; g public.games; t record; existing public.games; w uuid; b uuid; v text := private.valid_variant(p_variant);
 begin
   if auth.uid() is null then raise exception 'Necesitas iniciar sesión'; end if;
   if p_tc not in ('10+0', '5+3', '3+2', '1+0', '15+10') then raise exception 'Ritmo no válido'; end if;
   perform private.assert_fair();
-  select * into existing from public.games where status = 'playing' and auth.uid() in (white, black) order by created_at desc limit 1;
+  select * into existing from public.games where status = 'playing' and time_control <> '1d' and auth.uid() in (white, black) order by created_at desc limit 1;
   if existing.id is not null then return jsonb_build_object('game', existing.id); end if;
   select * into me from public.profiles where id = auth.uid();
   delete from public.mm_queue where joined_at < now() - interval '2 minutes';
   select * into opp from public.mm_queue q
-    where q.user_id <> me.id and q.time_control = p_tc
+    where q.user_id <> me.id and q.time_control = p_tc and q.variant = v
       and abs(q.rating - me.rating) <= 100 + 50 * floor(extract(epoch from now() - q.joined_at) / 10)
     order by abs(q.rating - me.rating), q.joined_at
     limit 1 for update skip locked;
   if opp.user_id is null then
-    insert into public.mm_queue (user_id, rating, time_control) values (me.id, me.rating, p_tc)
-      on conflict (user_id) do update set time_control = excluded.time_control, rating = excluded.rating, joined_at = case when mm_queue.time_control = excluded.time_control then mm_queue.joined_at else now() end;
+    insert into public.mm_queue (user_id, rating, time_control, variant) values (me.id, me.rating, p_tc, v)
+      on conflict (user_id) do update set time_control = excluded.time_control, variant = excluded.variant, rating = excluded.rating,
+        joined_at = case when mm_queue.time_control = excluded.time_control and mm_queue.variant = excluded.variant then mm_queue.joined_at else now() end;
     return jsonb_build_object('waiting', true);
   end if;
   delete from public.mm_queue where user_id in (opp.user_id, me.id);
   t := private.tc_ms(p_tc);
   if random() < 0.5 then w := me.id; b := opp.user_id; else w := opp.user_id; b := me.id; end if;
-  insert into public.games (white, black, time_control, base_ms, inc_ms, white_ms, black_ms, white_rating, black_rating)
+  insert into public.games (white, black, time_control, base_ms, inc_ms, white_ms, black_ms, white_rating, black_rating, variant, start_fen)
     values (w, b, p_tc, t.base_ms, t.inc_ms, t.base_ms, t.base_ms,
-      (select rating from public.profiles where id = w), (select rating from public.profiles where id = b))
+      (select rating from public.profiles where id = w), (select rating from public.profiles where id = b),
+      v, case when v = 'chess960' then private.fen960() end)
     returning * into g;
   return jsonb_build_object('game', g.id);
 end $$;
@@ -411,6 +444,13 @@ begin
   if p_san !~ '^([KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](=[QRBN])?|O-O(-O)?)[+#]?$' then raise exception 'Jugada no válida'; end if;
   -- El reloj empieza tras la primera jugada de cada bando
   elapsed := case when n < 2 or g.last_move_at is null then 0 else (extract(epoch from now() - g.last_move_at) * 1000)::int end;
+  if g.time_control = '1d' and n >= 2 then
+    -- Por correspondencia: si has jugado a tiempo, vuelves a tener un día entero
+    if elapsed > (case when white_turn then g.white_ms else g.black_ms end) then
+      return private.finish_game(g.id, case when white_turn then '0-1' else '1-0' end, 'Tiempo agotado');
+    end if;
+    if white_turn then g.white_ms := g.base_ms + elapsed; else g.black_ms := g.base_ms + elapsed; end if;
+  end if;
   if white_turn then
     g.white_ms := g.white_ms - elapsed;
     if g.white_ms <= 0 then return private.finish_game(g.id, '0-1', 'Tiempo agotado'); end if;
@@ -439,7 +479,7 @@ begin
   n := coalesce(array_length(g.moves, 1), 0);
   white_turn := n % 2 = 0;
   if n < 2 then
-    if now() > coalesce(g.last_move_at, g.created_at) + interval '60 seconds' then
+    if now() > coalesce(g.last_move_at, g.created_at) + (case when g.time_control = '1d' then interval '1 day' else interval '60 seconds' end) then
       return private.finish_game(g.id, case when white_turn then '0-1' else '1-0' end, 'El rival no hizo su primera jugada');
     end if;
     return g;
@@ -481,15 +521,17 @@ create table if not exists public.challenges (
   game uuid references public.games (id),
   created_at timestamptz not null default now()
 );
+alter table public.challenges add column if not exists variant text not null default 'standard';
 alter table public.challenges enable row level security;
 revoke all on public.challenges from anon, authenticated;
 
-create or replace function public.challenge_create(p_tc text, p_color text default 'random') returns jsonb
+drop function if exists public.challenge_create(text, text);
+create or replace function public.challenge_create(p_tc text, p_color text default 'random', p_variant text default 'standard') returns jsonb
 language plpgsql security definer set search_path = public, private as $$
-declare c text;
+declare c text; v text := private.valid_variant(p_variant);
 begin
   if auth.uid() is null then raise exception 'Necesitas iniciar sesión'; end if;
-  if p_tc not in ('10+0', '5+3', '3+2', '1+0', '15+10') then raise exception 'Ritmo no válido'; end if;
+  if p_tc not in ('10+0', '5+3', '3+2', '1+0', '15+10', '1d') then raise exception 'Ritmo no válido'; end if;
   if p_color not in ('w', 'b', 'random') then raise exception 'Color no válido'; end if;
   perform private.assert_fair();
   delete from public.challenges where (creator = auth.uid() and game is null) or created_at < now() - interval '1 day';
@@ -498,7 +540,7 @@ begin
     c := (select string_agg(substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 1 + floor(random() * 32)::int, 1), '') from generate_series(1, 6));
     exit when not exists (select 1 from public.challenges where code = c);
   end loop;
-  insert into public.challenges (code, creator, time_control, color) values (c, auth.uid(), p_tc, p_color);
+  insert into public.challenges (code, creator, time_control, color, variant) values (c, auth.uid(), p_tc, p_color, v);
   return jsonb_build_object('code', c);
 end $$;
 
@@ -510,7 +552,7 @@ begin
   select * into ch from public.challenges where code = upper(trim(p_code));
   if ch.code is null then return jsonb_build_object('found', false); end if;
   select username into who from public.profiles where id = ch.creator;
-  return jsonb_build_object('found', true, 'game', ch.game, 'time_control', ch.time_control, 'creator', who, 'mine', ch.creator = auth.uid());
+  return jsonb_build_object('found', true, 'game', ch.game, 'time_control', ch.time_control, 'variant', ch.variant, 'creator', who, 'mine', ch.creator = auth.uid());
 end $$;
 
 create or replace function public.challenge_accept(p_code text) returns jsonb
@@ -523,12 +565,13 @@ begin
   if ch.game is not null then return jsonb_build_object('game', ch.game); end if;
   if ch.creator = auth.uid() then raise exception 'No puedes aceptar tu propio reto: pásale el código a tu amigo'; end if;
   perform private.assert_fair();
-  if exists (select 1 from public.games where status = 'playing' and auth.uid() in (white, black)) then raise exception 'Ya tienes una partida en juego'; end if;
+  if ch.time_control <> '1d' and exists (select 1 from public.games where status = 'playing' and time_control <> '1d' and auth.uid() in (white, black)) then raise exception 'Ya tienes una partida en juego'; end if;
   t := private.tc_ms(ch.time_control);
   if ch.color = 'w' or (ch.color = 'random' and random() < 0.5) then w := ch.creator; b := auth.uid(); else w := auth.uid(); b := ch.creator; end if;
-  insert into public.games (white, black, time_control, base_ms, inc_ms, white_ms, black_ms, white_rating, black_rating)
+  insert into public.games (white, black, time_control, base_ms, inc_ms, white_ms, black_ms, white_rating, black_rating, variant, start_fen)
     values (w, b, ch.time_control, t.base_ms, t.inc_ms, t.base_ms, t.base_ms,
-      (select rating from public.profiles where id = w), (select rating from public.profiles where id = b))
+      (select rating from public.profiles where id = w), (select rating from public.profiles where id = b),
+      ch.variant, case when ch.variant = 'chess960' then private.fen960() end)
     returning * into g;
   update public.challenges set game = g.id where code = ch.code;
   delete from public.mm_queue where user_id in (w, b);
@@ -648,7 +691,7 @@ begin
   select * into me from public.tournament_players where tournament_id = p_id and user_id = auth.uid() for update;
   if me.user_id is null or not me.active then raise exception 'No estás apuntado a este torneo'; end if;
   perform private.assert_fair();
-  select * into existing from public.games where status = 'playing' and auth.uid() in (white, black) order by created_at desc limit 1;
+  select * into existing from public.games where status = 'playing' and time_control <> '1d' and auth.uid() in (white, black) order by created_at desc limit 1;
   if existing.id is not null then return jsonb_build_object('game', existing.id); end if;
   if now() < t.starts_at then return jsonb_build_object('state', 'not_started'); end if;
   -- En el último minuto no empiezan partidas nuevas
@@ -656,7 +699,7 @@ begin
   update public.tournament_players set waiting_since = coalesce(waiting_since, now()), last_seen = now() where tournament_id = p_id and user_id = me.user_id;
   select p.* into opp from public.tournament_players p
     where p.tournament_id = p_id and p.user_id <> me.user_id and p.active and p.waiting_since is not null and p.last_seen > now() - interval '8 seconds'
-      and not exists (select 1 from public.games x where x.status = 'playing' and p.user_id in (x.white, x.black))
+      and not exists (select 1 from public.games x where x.status = 'playing' and x.time_control <> '1d' and p.user_id in (x.white, x.black))
     order by (p.user_id = me.last_opponent and p.last_opponent = me.user_id), abs(p.points - me.points), p.waiting_since
     limit 1 for update skip locked;
   if opp.user_id is null then return jsonb_build_object('state', 'waiting'); end if;
@@ -728,7 +771,7 @@ begin
         select updated_at as at, case when white = p.id then white_rating + coalesce(rating_change, 0) else black_rating - coalesce(rating_change, 0) end as rating
         from public.games where status = 'finished' and p.id in (white, black) order by updated_at desc limit 40) r), '[]'::jsonb),
     'recent', coalesce((select jsonb_agg(r order by r.at desc) from (
-        select g.id, g.updated_at as at, g.time_control, g.result, g.reason, g.moves, g.white = p.id as white,
+        select g.id, g.updated_at as at, g.time_control, g.result, g.reason, g.moves, g.start_fen, g.white = p.id as white,
           case when g.white = p.id then g.rating_change else -g.rating_change end as change,
           o.username as opponent, case when g.white = p.id then g.black_rating else g.white_rating end as opponent_rating
         from public.games g join public.profiles o on o.id = case when g.white = p.id then g.black else g.white end
@@ -863,21 +906,22 @@ language sql security definer set search_path = public as $$
       from public.friendships f join public.profiles p on p.id = f.requester where f.addressee = auth.uid() and f.status = 'pending'), '[]'::jsonb),
     'outgoing', coalesce((select jsonb_agg(jsonb_build_object('id', p.id, 'username', p.username))
       from public.friendships f join public.profiles p on p.id = f.addressee where f.requester = auth.uid() and f.status = 'pending'), '[]'::jsonb),
-    'challenges', coalesce((select jsonb_agg(jsonb_build_object('code', c.code, 'username', p.username, 'time_control', c.time_control))
+    'challenges', coalesce((select jsonb_agg(jsonb_build_object('code', c.code, 'username', p.username, 'time_control', c.time_control, 'variant', c.variant))
       from public.challenges c join public.profiles p on p.id = c.creator
       where c.target = auth.uid() and c.game is null and c.created_at > now() - interval '30 minutes'), '[]'::jsonb)
   );
 $$;
 
 -- Retar directamente a un amigo (le aparece en su lista)
-create or replace function public.friend_challenge(p_user uuid, p_tc text) returns jsonb
+drop function if exists public.friend_challenge(uuid, text);
+create or replace function public.friend_challenge(p_user uuid, p_tc text, p_variant text default 'standard') returns jsonb
 language plpgsql security definer set search_path = public, private as $$
 declare r jsonb;
 begin
   if not exists (select 1 from public.friendships where status = 'accepted' and ((requester = auth.uid() and addressee = p_user) or (requester = p_user and addressee = auth.uid()))) then
     raise exception 'Solo puedes retar directamente a tus amigos';
   end if;
-  r := public.challenge_create(p_tc, 'random');
+  r := public.challenge_create(p_tc, 'random', p_variant);
   update public.challenges set target = p_user where code = r ->> 'code';
   return r;
 end $$;

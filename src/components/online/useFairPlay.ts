@@ -23,7 +23,7 @@ export function useFairPlay(g: Row | null, me: string, spectator: boolean, apply
   useEffect(() => {
     if (!g || spectator || disputed.current || g.disputed_by) return;
     const myColor = g.white === me ? "w" : "b";
-    const c = new Chess();
+    const c = new Chess(g?.start_fen ?? undefined);
     for (let i = 0; i < g.moves.length; i++) {
       try {
         c.move(g.moves[i]);
@@ -77,7 +77,7 @@ export function useFairPlay(g: Row | null, me: string, spectator: boolean, apply
       const engine = await createEngine();
       if (!engine.isReal) return engine.destroy();
       try {
-        const c = new Chess();
+        const c = new Chess(g?.start_fen ?? undefined);
         for (const m of g.moves) c.move(m);
         const a = await analyzeGame(c.pgn(), engine, { depth: 10 });
         if (cancelled) return;

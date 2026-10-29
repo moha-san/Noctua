@@ -10,15 +10,17 @@ import { playSound } from "@/lib/sound";
 import { AuthPanel } from "@/components/account/AuthPanel";
 import { GameView } from "@/components/online/OnlinePlay";
 import { profileHref } from "@/components/profile/ProfilePage";
+import { tcLabel } from "@/lib/chess/chess960";
 
 export type FriendList = {
   friends: { id: string; username: string; rating: number; online: boolean; playing: string | null }[];
   incoming: { id: string; username: string; rating: number }[];
   outgoing: { id: string; username: string }[];
-  challenges: { code: string; username: string; time_control: string }[];
+  challenges: { code: string; username: string; time_control: string; variant?: string }[];
 };
 
-const RITMOS = ["1+0", "3+2", "5+3", "10+0", "15+10"];
+const RITMOS = ["1+0", "3+2", "5+3", "10+0", "15+10", "1d"];
+const ritmo = (r: string) => (r === "1d" ? "1 día por jugada" : r);
 
 /** Amigos: solicitudes, quién está conectado, retos directos y ver sus partidas. */
 export function FriendsPage() {
@@ -27,6 +29,7 @@ export function FriendsPage() {
   const [name, setName] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [tc, setTc] = useState("5+3");
+  const [variant, setVariant] = useState("standard");
   const [waiting, setWaiting] = useState<{ code: string; to: string } | null>(null);
   const [game, setGame] = useState<string | null>(null);
 
@@ -98,7 +101,7 @@ export function FriendsPage() {
             {list.challenges.map((c) => (
               <div key={c.code} className="flex flex-wrap items-center gap-4 px-6 py-4">
                 <Swords className="h-5 w-5 text-gold" />
-                <p className="min-w-0 flex-1 font-serif text-[18px] text-ink">{c.username} te reta a una partida de {c.time_control}</p>
+                <p className="min-w-0 flex-1 font-serif text-[18px] text-ink">{c.username} te reta a una partida de {tcLabel(c.time_control)}{c.variant === "chess960" ? " de Chess960" : ""}</p>
                 <button className="btn-primary px-5" onClick={async () => { const r = await act("challenge_accept", { p_code: c.code }); if (r) setGame((r as { game: string }).game); }}>Aceptar</button>
               </div>
             ))}
@@ -108,7 +111,7 @@ export function FriendsPage() {
         {waiting && (
           <div className="card flex flex-wrap items-center gap-4 p-6">
             <Loader2 className="h-5 w-5 animate-spin text-gold" />
-            <p className="min-w-0 flex-1 text-[15px] text-ink">Esperando a que {waiting.to} acepte tu reto de {tc}… También puede usar el código <span className="font-serif tracking-[0.2em]">{waiting.code}</span>.</p>
+            <p className="min-w-0 flex-1 text-[15px] text-ink">Esperando a que {waiting.to} acepte tu reto de {tcLabel(tc)}{variant === "chess960" ? " (Chess960)" : ""}… También puede usar el código <span className="font-serif tracking-[0.2em]">{waiting.code}</span>.</p>
             <button className="btn-ghost" onClick={() => { void rpc("challenge_cancel").catch(() => {}); setWaiting(null); }}><X className="h-4 w-4" /> Cancelar</button>
           </div>
         )}
@@ -119,12 +122,21 @@ export function FriendsPage() {
               <p className="font-serif text-[24px] text-ink">Tus amigos</p>
               <p className="text-[13px] text-ink-4">{list ? `${list.friends.length} amigos · ${online} conectados` : "Cargando…"}</p>
             </div>
-            <label className="flex items-center gap-2 text-[13px] text-ink-3">
-              Ritmo de los retos
-              <select value={tc} onChange={(e) => setTc(e.target.value)} className="rounded-lg border border-line bg-paper px-2 py-1 text-ink">
-                {RITMOS.map((r) => <option key={r}>{r}</option>)}
-              </select>
-            </label>
+            <div className="flex flex-wrap items-center gap-3 text-[13px] text-ink-3">
+              <label className="flex items-center gap-2">
+                Ritmo
+                <select value={tc} onChange={(e) => setTc(e.target.value)} className="rounded-lg border border-line bg-paper px-2 py-1 text-ink">
+                  {RITMOS.map((r) => <option key={r} value={r}>{ritmo(r)}</option>)}
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                Variante
+                <select value={variant} onChange={(e) => setVariant(e.target.value)} className="rounded-lg border border-line bg-paper px-2 py-1 text-ink">
+                  <option value="standard">Clásica</option>
+                  <option value="chess960">Chess960</option>
+                </select>
+              </label>
+            </div>
           </div>
           {list && list.friends.length === 0 ? (
             <p className="px-6 pb-6 text-[14px] text-ink-3">Todavía no tienes amigos en el club. Añade a alguien por su nombre de usuario.</p>
@@ -143,7 +155,7 @@ export function FriendsPage() {
                   {f.playing ? (
                     <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setGame(f.playing)}><Eye className="h-3.5 w-3.5" /> Ver partida</button>
                   ) : (
-                    <button className="btn-primary px-4 py-1.5 text-xs" disabled={!!waiting} onClick={async () => { const r = await act("friend_challenge", { p_user: f.id, p_tc: tc }); if (r) setWaiting({ code: (r as { code: string }).code, to: f.username }); }}><Swords className="h-3.5 w-3.5" /> Retar</button>
+                    <button className="btn-primary px-4 py-1.5 text-xs" disabled={!!waiting} onClick={async () => { const r = await act("friend_challenge", { p_user: f.id, p_tc: tc, p_variant: variant }); if (r) setWaiting({ code: (r as { code: string }).code, to: f.username }); }}><Swords className="h-3.5 w-3.5" /> Retar</button>
                   )}
                   <button className="rounded-full p-2 text-ink-4 hover:text-bad" title="Quitar de amigos" aria-label={`Quitar a ${f.username}`} onClick={() => confirm(`¿Quitar a ${f.username} de tus amigos?`) && act("friend_remove", { p_user: f.id })}><UserMinus className="h-4 w-4" /></button>
                 </li>

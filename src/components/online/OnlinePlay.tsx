@@ -7,7 +7,8 @@ import { Bot, Check, Copy, Eye, Flag, UserPlus, Handshake, Loader2, Microscope, 
 import { cn } from "@/lib/cn";
 import { backendConfigured, rpc, sb, type Profile } from "@/lib/backend/client";
 import { refreshProfile, useAuth } from "@/hooks/useAuth";
-import { fmtClock } from "@/lib/play/levels";
+import { fmtClock as fmtShort } from "@/lib/play/levels";
+import { VARIANT_LABEL, tcLabel } from "@/lib/chess/chess960";
 import { playSound, soundForMove } from "@/lib/sound";
 import { saveReviewPgn, withHeaders } from "@/lib/reviewStore";
 import { Board } from "@/components/board/Board";
@@ -37,6 +38,8 @@ export type OnlineGame = {
   rating_change: number | null;
   created_at: string;
   disputed_by?: string | null;
+  variant?: string;
+  start_fen?: string | null;
 };
 
 const RITMOS = [
@@ -46,6 +49,13 @@ const RITMOS = [
   { id: "10+0", label: "10 min", kind: "Rápida" },
   { id: "15+10", label: "15 + 10", kind: "Rápida" },
 ];
+
+/** Reloj: días y horas en correspondencia, minutos y segundos en el resto. */
+function fmtClock(ms: number) {
+  if (ms < 3600000) return fmtShort(ms);
+  const h = Math.floor(ms / 3600000);
+  return h >= 24 ? `${Math.floor(h / 24)} d ${h % 24} h` : `${h} h ${Math.floor((ms % 3600000) / 60000)} min`;
+}
 
 /** Partidas online contra otras personas, con emparejamiento por Elo. */
 export function OnlinePlay({ code: codeProp }: { code?: string | null } = {}) {
@@ -71,6 +81,18 @@ export function OnlinePlay({ code: codeProp }: { code?: string | null } = {}) {
       if (v && RITMOS.some((r) => r.id === v)) setTcState(v);
     } catch {}
   }, []);
+  const [variant, setVariantState] = useState<"standard" | "chess960">("standard");
+  const setVariant = (v: "standard" | "chess960") => {
+    setVariantState(v);
+    try {
+      localStorage.setItem("athenaeum-online-variant", v);
+    } catch {}
+  };
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("athenaeum-online-variant") === "chess960") setVariantState("chess960");
+    } catch {}
+  }, []);
   const [searching, setSearching] = useState(false);
   const [waited, setWaited] = useState(0);
   const [gameId, setGameId] = useState<string | null>(null);
@@ -80,7 +102,7 @@ export function OnlinePlay({ code: codeProp }: { code?: string | null } = {}) {
   useEffect(() => {
     const c = sb();
     if (!c || !user) return;
-    c.from("games").select("id").eq("status", "playing").or(`white.eq.${user.id},black.eq.${user.id}`).order("created_at", { ascending: false }).limit(1)
+    c.from("games").select("id").eq("status", "playing").neq("time_control", "1d").or(`white.eq.${user.id},black.eq.${user.id}`).order("created_at", { ascending: false }).limit(1)
       .then(({ data }) => data?.[0] && setGameId(data[0].id));
   }, [user]);
 
@@ -91,7 +113,7 @@ export function OnlinePlay({ code: codeProp }: { code?: string | null } = {}) {
     const t0 = Date.now();
     const tick = async () => {
       try {
-        const r = await rpc<{ game?: string; waiting?: boolean }>("mm_find", { p_tc: tc });
+        const r = await rpc<{ game?: string; waiting?: boolean }>("mm_find", { p_tc: tc, p_variant: variant });
         if (!alive) return;
         if (r.game) {
           setSearching(false);
@@ -113,7 +135,7 @@ export function OnlinePlay({ code: codeProp }: { code?: string | null } = {}) {
       alive = false;
       clearInterval(id);
     };
-  }, [searching, tc]);
+  }, [searching, tc, variant]);
 
   // Salir de la página mientras se busca: se abandona la cola
   useEffect(() => {
@@ -152,7 +174,15 @@ export function OnlinePlay({ code: codeProp }: { code?: string | null } = {}) {
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-8">
         <div className="card p-7 sm:p-9">
-          <p className="label">Ritmo</p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="label">Ritmo</p>
+            <div className="flex rounded-xl border border-line p-1" role="group" aria-label="Variante">
+              {(["standard", "chess960"] as const).map((v) => (
+                <button key={v} disabled={searching} onClick={() => setVariant(v)} className={cn("rounded-lg px-3 py-1.5 text-[13px] transition", variant === v ? "bg-ink text-paper" : "text-ink-3 hover:text-ink")}>{VARIANT_LABEL[v]}</button>
+              ))}
+            </div>
+          </div>
+          {variant === "chess960" && <p className="mt-3 text-[13px] text-ink-3">Chess960: las piezas de atrás empiezan en un orden al azar (igual para los dos). Se juega sin enroque.</p>}
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
             {RITMOS.map((r) => (
               <button
@@ -183,7 +213,8 @@ export function OnlinePlay({ code: codeProp }: { code?: string | null } = {}) {
             </button>
           )}
         </div>
-        <ChallengeCard tc={tc} disabled={searching} onGame={(id) => setGameId(id)} />
+        <Correspondence me={user.id} onOpen={setGameId} />
+        <ChallengeCard tc={tc} variant={variant} disabled={searching} onGame={(id) => setGameId(id)} />
         <LiveGames me={user.id} onWatch={setWatchId} />
         </div>
         <aside className="space-y-6">
@@ -216,8 +247,11 @@ function inviteLink(code: string) {
 }
 
 /** Retar a un amigo: crea un código y espera a que lo acepte. También acepta códigos. */
-function ChallengeCard({ tc, disabled, onGame }: { tc: string; disabled: boolean; onGame: (id: string) => void }) {
+function ChallengeCard({ tc: lobbyTc, variant, disabled, onGame }: { tc: string; variant: string; disabled: boolean; onGame: (id: string) => void }) {
   const [color, setColor] = useState<"w" | "b" | "random">("random");
+  const [corr, setCorr] = useState(false);
+  const tc = corr ? "1d" : lobbyTc;
+  const tcText = tcLabel(tc) + (variant === "chess960" ? " · Chess960" : "");
   const [code, setCode] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
   const [copied, setCopied] = useState(false);
@@ -251,7 +285,7 @@ function ChallengeCard({ tc, disabled, onGame }: { tc: string; disabled: boolean
     setBusy(true);
     setError(null);
     try {
-      const r = await rpc<{ code: string }>("challenge_create", { p_tc: tc, p_color: color });
+      const r = await rpc<{ code: string }>("challenge_create", { p_tc: tc, p_color: color, p_variant: variant });
       setCode(r.code);
     } catch (e) {
       setError((e as Error).message);
@@ -276,7 +310,7 @@ function ChallengeCard({ tc, disabled, onGame }: { tc: string; disabled: boolean
   const link = code ? inviteLink(code) : null;
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(link ? `Te reto a una partida de ajedrez (${tc}) en Athenaeum: ${link}  · Código: ${code}` : code!);
+      await navigator.clipboard.writeText(link ? `Te reto a una partida de ajedrez (${tcText}) en Athenaeum: ${link}  · Código: ${code}` : code!);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {}
@@ -287,7 +321,7 @@ function ChallengeCard({ tc, disabled, onGame }: { tc: string; disabled: boolean
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-serif text-[22px] text-ink">Retar a un amigo</p>
-          <p className="text-[14px] text-ink-3">Partida de {tc} con un código. Cuenta para el Elo online.</p>
+          <p className="text-[14px] text-ink-3">Partida de {tcText} con un código. Cuenta para el Elo online.</p>
         </div>
         <UserPlus className="h-6 w-6 text-gold" strokeWidth={1.5} />
       </div>
@@ -312,6 +346,10 @@ function ChallengeCard({ tc, disabled, onGame }: { tc: string; disabled: boolean
                 <button key={c} onClick={() => setColor(c)} className={cn("flex-1 rounded-xl border px-2 py-2 text-[13px] transition", color === c ? "border-gold bg-gold/10 text-ink" : "border-line text-ink-3 hover:border-ink-4")}>{l}</button>
               ))}
             </div>
+            <label className="mt-3 flex items-center gap-2 text-[13px] text-ink-3">
+              <input type="checkbox" checked={corr} onChange={(e) => setCorr(e.target.checked)} className="accent-[#c4a048]" />
+              Por correspondencia (1 día por jugada)
+            </label>
             <button className="btn-primary mt-3 w-full" disabled={busy || disabled} onClick={create}><UserPlus className="h-4 w-4" /> Crear reto</button>
           </div>
           <div>
@@ -334,7 +372,7 @@ function ChallengeCard({ tc, disabled, onGame }: { tc: string; disabled: boolean
 
 /** Aviso cuando se entra con un enlace de reto. */
 function InvitePanel({ code, onGame, onDismiss }: { code: string; onGame: (id: string) => void; onDismiss: () => void }) {
-  const [info, setInfo] = useState<{ found: boolean; creator?: string; time_control?: string; mine?: boolean; game?: string | null } | null>(null);
+  const [info, setInfo] = useState<{ found: boolean; creator?: string; time_control?: string; variant?: string; mine?: boolean; game?: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     rpc<typeof info>("challenge_status", { p_code: code }).then(setInfo).catch((e: Error) => setError(e.message));
@@ -353,7 +391,7 @@ function InvitePanel({ code, onGame, onDismiss }: { code: string; onGame: (id: s
       <div>
         <p className="label text-gold">Reto recibido · {code}</p>
         <p className="mt-1 font-serif text-[22px] text-ink">
-          {!info ? "Buscando el reto…" : !info.found ? "Este reto ya no existe" : `${info.creator} te reta a una partida de ${info.time_control}`}
+          {!info ? "Buscando el reto…" : !info.found ? "Este reto ya no existe" : `${info.creator} te reta a una partida de ${tcLabel(info.time_control ?? "")}${info.variant === "chess960" ? " de Chess960" : ""}`}
         </p>
         {error && <p className="mt-1 text-[14px] text-bad">{error}</p>}
       </div>
@@ -361,6 +399,51 @@ function InvitePanel({ code, onGame, onDismiss }: { code: string; onGame: (id: s
         {info?.found && <button className="btn-primary px-6" onClick={accept}>Aceptar</button>}
         <button className="btn-ghost" onClick={onDismiss}>Ahora no</button>
       </div>
+    </div>
+  );
+}
+
+/** Mis partidas por correspondencia: una jugada al día, sin prisa. */
+function Correspondence({ me, onOpen }: { me: string; onOpen: (id: string) => void }) {
+  const [rows, setRows] = useState<(OnlineGame & { opp?: string })[]>([]);
+  useEffect(() => {
+    const c = sb();
+    if (!c) return;
+    let alive = true;
+    const load = async () => {
+      const { data } = await c.from("games").select("*").eq("status", "playing").eq("time_control", "1d").or(`white.eq.${me},black.eq.${me}`).order("updated_at", { ascending: false }).limit(20);
+      const gs = (data ?? []) as OnlineGame[];
+      const ids = [...new Set(gs.map((g) => (g.white === me ? g.black : g.white)))];
+      const { data: ps } = ids.length ? await c.from("profiles").select("id, username").in("id", ids) : { data: [] };
+      const n = Object.fromEntries((ps ?? []).map((p) => [p.id, p.username]));
+      if (alive) setRows(gs.map((g) => ({ ...g, opp: n[g.white === me ? g.black : g.white] })));
+    };
+    void load();
+    const id = setInterval(load, 30000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [me]);
+  if (rows.length === 0) return null;
+  return (
+    <div className="card p-7 sm:p-9">
+      <p className="font-serif text-[22px] text-ink">Por correspondencia</p>
+      <p className="text-[14px] text-ink-3">Tienes un día para cada jugada.</p>
+      <ul className="mt-4 divide-y divide-line">
+        {rows.map((g) => {
+          const myTurn = (g.moves.length % 2 === 0) === (g.white === me);
+          return (
+            <li key={g.id} className="flex items-center gap-4 py-3">
+              <span className="min-w-0 flex-1 truncate text-[15px] text-ink">
+                {g.opp ?? "…"} <span className="text-ink-4">· {Math.ceil(g.moves.length / 2)} jug.{g.variant === "chess960" ? " · Chess960" : ""}</span>
+              </span>
+              <span className={cn("text-[13px]", myTurn ? "font-medium text-gold" : "text-ink-4")}>{myTurn ? "Te toca" : "Le toca"}</span>
+              <button className={cn("px-3 py-1.5 text-xs", myTurn ? "btn-primary" : "btn-ghost")} onClick={() => onOpen(g.id)}>Abrir</button>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -473,7 +556,7 @@ function RecentOnline({ me }: { me: string }) {
           const change = g.rating_change == null ? null : white ? g.rating_change : -g.rating_change;
           const opp = names[white ? g.black : g.white] ?? "Rival";
           const pgn = () => {
-            const c = new Chess();
+            const c = new Chess(g?.start_fen ?? undefined);
             for (const m of g.moves) c.move(m);
             return withHeaders(c.pgn(), { Event: "Athenaeum online", White: names[g.white] ?? "?", Black: names[g.black] ?? "?", Result: g.result ?? "*", TimeControl: g.time_control });
           };
@@ -570,7 +653,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
   const spectator = !!g && g.white !== me && g.black !== me;
   const color: "w" | "b" = g?.black === me ? "b" : "w";
   const chess = useMemo(() => {
-    const c = new Chess();
+    const c = new Chess(g?.start_fen ?? undefined);
     for (const m of g?.moves ?? []) {
       try {
         c.move(m);
@@ -591,7 +674,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
   useEffect(() => {
     if (!g) return;
     if (lastLen.current >= 0 && g.moves.length > lastLen.current) {
-      const c = new Chess();
+      const c = new Chess(g?.start_fen ?? undefined);
       let last;
       for (const m of g.moves) last = c.move(m);
       if (last) soundForMove(last, c.isGameOver());
@@ -618,7 +701,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
   const canPremove = !spectator && !!g && g.status === "playing" && view === null && !pending && chess.turn() !== color;
   const viewFen = useMemo(() => {
     if (view === null || !g) return null;
-    const c = new Chess();
+    const c = new Chess(g?.start_fen ?? undefined);
     for (const m of g.moves.slice(0, view)) c.move(m);
     return c.fen();
   }, [view, g]);
@@ -738,7 +821,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
   const iOffered = g.draw_offer === me;
 
   const pgn = () => {
-    const c = new Chess();
+    const c = new Chess(g?.start_fen ?? undefined);
     for (const m of g.moves) c.move(m);
     return withHeaders(c.pgn(), {
       Event: "Athenaeum online",
@@ -811,7 +894,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
                 {!spectator && myChange != null && <p className={cn("mt-3 font-serif text-[22px] tabular-nums", myChange > 0 ? "text-good" : myChange < 0 ? "text-bad" : "text-ink-3")}>{myChange > 0 ? "+" : ""}{myChange} Elo</p>}
                 <div className="mt-6 grid gap-2">
                   <Link href="/review?game=custom" onClick={() => saveReviewPgn(pgn())} className="btn-primary py-3"><Microscope className="h-4 w-4" /> Analizar partida</Link>
-                  {!spectator && !inTournament && <button className="btn-ghost py-3" onClick={() => onExit(g.time_control)}><Search className="h-4 w-4" /> Otra partida de {g.time_control}</button>}
+                  {!spectator && !inTournament && g.time_control !== "1d" && <button className="btn-ghost py-3" onClick={() => onExit(g.time_control)}><Search className="h-4 w-4" /> Otra partida de {g.time_control}</button>}
                   <button className="text-[13px] text-ink-3 underline-offset-4 hover:underline" onClick={() => onExit(null)}>{inTournament ? "Volver al torneo" : "Volver al inicio"}</button>
                 </div>
               </div>
@@ -823,7 +906,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
 
       <aside className="space-y-6">
         <div className="card p-6">
-          <p className="label">{g.time_control} · {spectator ? "En directo" : "Online"}</p>
+          <p className="label">{g.time_control === "1d" ? "Correspondencia" : g.time_control}{g.variant === "chess960" ? " · Chess960" : ""} · {spectator ? "En directo" : "Online"}</p>
           <p className="mt-2 font-serif text-[20px] text-ink">
             {finished ? "Partida terminada" : spectator ? `Juegan las ${chess.turn() === "w" ? "blancas" : "negras"}` : pending ? "Enviando jugada…" : myTurn ? "Tu turno" : "Turno del rival"}
           </p>

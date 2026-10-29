@@ -1,5 +1,6 @@
 "use client";
 
+import { tcLabel } from "@/lib/chess/chess960";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Swords, X } from "lucide-react";
@@ -7,7 +8,7 @@ import { backendConfigured, rpc } from "@/lib/backend/client";
 import { useAuth } from "@/hooks/useAuth";
 import { playSound } from "@/lib/sound";
 
-type Challenge = { code: string; username: string; time_control: string };
+type Challenge = { code: string; username: string; time_control: string; variant?: string };
 
 /** Marca que estás conectado y avisa cuando un amigo te reta. */
 export function Presence() {
@@ -48,7 +49,7 @@ export function Presence() {
     <div className="fixed bottom-24 right-4 z-50 w-[min(92vw,360px)] motion-safe:animate-page lg:bottom-6" role="status">
       <div className="card flex items-center gap-3 p-4 shadow-lift">
         <Swords className="h-5 w-5 shrink-0 text-gold" />
-        <p className="min-w-0 flex-1 text-[14px] text-ink"><span className="font-medium">{toast.username}</span> te reta a una partida de {toast.time_control}</p>
+        <p className="min-w-0 flex-1 text-[14px] text-ink"><span className="font-medium">{toast.username}</span> te reta a una partida de {tcLabel(toast.time_control)}{toast.variant === "chess960" ? " de Chess960" : ""}</p>
         <Link href="/friends" onClick={() => setToast(null)} className="btn-primary px-3 py-1.5 text-xs">Ver</Link>
         <button onClick={() => setToast(null)} className="text-ink-4 hover:text-ink" aria-label="Cerrar"><X className="h-4 w-4" /></button>
       </div>

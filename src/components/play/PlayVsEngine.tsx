@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import type { Evaluation } from "@/lib/engine/types";
 import { USER } from "@/lib/data/mock";
 import { loadRating, saveGame, type SavedGame } from "@/lib/history";
+import { fen960 } from "@/lib/chess/chess960";
 import { fmtClock, LEVELS, material, TIME_CONTROLS, type Level, type TimeControl } from "@/lib/play/levels";
 import { saveReviewPgn, withHeaders } from "@/lib/reviewStore";
 import { playSound, setSoundEnabled, soundEnabled } from "@/lib/sound";
@@ -18,8 +19,8 @@ import { PromotionPicker } from "@/components/board/PromotionPicker";
 import { EvalBar } from "@/components/board/EvalBar";
 
 type Color = "w" | "b";
-type Setup = { levelId: number; color: Color | "random"; tcId: string };
-type Live = { userColor: Color; levelId: number; tcId: string; pgn: string; clock: { w: number; b: number } };
+type Setup = { levelId: number; color: Color | "random"; tcId: string; variant?: "standard" | "chess960" };
+type Live = { userColor: Color; levelId: number; tcId: string; pgn: string; clock: { w: number; b: number }; fen?: string };
 type Over = { result: "win" | "loss" | "draw"; reason: string; saved?: SavedGame };
 
 const SETUP_KEY = "athenaeum-play-setup";
@@ -63,7 +64,7 @@ export function PlayVsEngine() {
     const userColor: Color = s.color === "random" ? (Math.random() < 0.5 ? "w" : "b") : s.color;
     setResume(null);
     setGameNo((n) => n + 1);
-    setLive({ userColor, levelId: s.levelId, tcId: s.tcId, pgn: "", clock: { w: tc.base * 1000, b: tc.base * 1000 } });
+    setLive({ userColor, levelId: s.levelId, tcId: s.tcId, pgn: "", clock: { w: tc.base * 1000, b: tc.base * 1000 }, fen: s.variant === "chess960" ? fen960() : undefined });
     playSound("start");
   };
 
@@ -140,6 +141,17 @@ function SetupScreen({ setup, onChange, onStart, onMatch, resume, onResume, onDi
                 <button key={c} onClick={() => onChange({ ...setup, color: c })} className={cn("flex flex-col items-center gap-2 rounded-xl border px-2 py-3 text-[13px] transition", setup.color === c ? "border-gold bg-gold/10 text-ink" : "border-line bg-paper text-ink-3 hover:border-ink-4")}>
                   {c === "random" ? <Shuffle className="h-6 w-6" strokeWidth={1.5} /> : <span className={cn("h-6 w-6 rounded-full ring-1 ring-line", c === "w" ? "bg-ivory" : "bg-ebony")} />}
                   {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="sm:col-span-2">
+            <p className="label mb-3">Variante</p>
+            <div className="grid grid-cols-2 gap-2 sm:max-w-md">
+              {([["standard", "Clásica", "La posición de siempre"], ["chess960", "Chess960", "Piezas de atrás al azar"]] as const).map(([v, l, d]) => (
+                <button key={v} onClick={() => onChange({ ...setup, variant: v })} className={cn("rounded-xl border px-3 py-2.5 text-left transition", (setup.variant ?? "standard") === v ? "border-gold bg-gold/10" : "border-line bg-paper hover:border-ink-4")}>
+                  <span className="block font-serif text-[16px] text-ink">{l}</span>
+                  <span className="block text-[11.5px] text-ink-4">{d}</span>
                 </button>
               ))}
             </div>
@@ -228,6 +240,7 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
   // Retomar una partida guardada
   useEffect(() => {
     if (initial.pgn) chess.load(initial.pgn);
+    else if (initial.fen) chess.reset(initial.fen);
     plies.current = initial.pgn ? chess.game.history().length : 0;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
