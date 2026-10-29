@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 import { ANSWER_MAX, ANSWER_MIN, NIM_SECONDS, PUZZLE_SECONDS, QUESTION } from "@/lib/admission";
 import { rpc } from "@/lib/backend/client";
 import { refreshProfile, useAuth } from "@/hooks/useAuth";
-import { playSound } from "@/lib/sound";
+import { playSound, soundForMove } from "@/lib/sound";
 import { Board } from "@/components/board/Board";
 import { AuthPanel } from "@/components/account/AuthPanel";
 import { AdmissionHeader, Intro, Timer, useCountdown, type Step } from "./AdmissionPage";
@@ -230,7 +230,7 @@ function PuzzleStep({ fen: start, send, onPass, onTimeUp }: { fen: string; send:
         setMistakes(r.mistakes ?? 1);
         return;
       }
-      playSound(m.captured ? "capture" : "move");
+      soundForMove(m);
       setFlash({ sq: to, ok: true });
       if (r.done) {
         setDone(true);
@@ -240,7 +240,7 @@ function PuzzleStep({ fen: start, send, onPass, onTimeUp }: { fen: string; send:
       if (r.reply)
         setTimeout(() => {
           const rm = g.move(r.reply!);
-          playSound(rm.captured ? "capture" : "move");
+          soundForMove(rm);
           setFen(g.fen());
         }, 400);
     });

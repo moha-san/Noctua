@@ -677,7 +677,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
       const c = new Chess(g?.start_fen ?? undefined);
       let last;
       for (const m of g.moves) last = c.move(m);
-      if (last) soundForMove(last, c.isGameOver());
+      if (last) soundForMove(last);
     }
     lastLen.current = g.moves.length;
     setView(null);
@@ -746,7 +746,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
     }
     setSelected(null);
     setPending(m.san);
-    soundForMove(m, c.isGameOver());
+    soundForMove(m);
     const flag = c.isCheckmate() ? "checkmate" : c.isStalemate() ? "stalemate" : c.isDraw() ? "draw" : null;
     try {
       const row = await rpc<OnlineGame>("game_move", { p_game: g.id, p_san: m.san, p_flag: flag });
@@ -787,7 +787,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
     if (!g || spectator || g.status !== "playing" || g.base_ms < 60000) return;
     if (myMs < 10000 && myMs > 0 && !warned.current) {
       warned.current = true;
-      playSound("check");
+      playSound("lowtime");
     }
   }, [myMs, g]);
 
@@ -848,6 +848,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
               if (!targetSquare || sourceSquare === targetSquare) return false;
               if (canPremove) {
                 setPremove({ from: sourceSquare, to: targetSquare });
+                playSound("premove");
                 return false;
               }
               void send(sourceSquare, targetSquare);
@@ -858,6 +859,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
                 const p = chess.get(square as Square);
                 if (selected && selected !== square) {
                   setPremove({ from: selected, to: square });
+                  playSound("premove");
                   setSelected(null);
                 } else {
                   setPremove(null);

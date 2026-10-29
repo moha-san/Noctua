@@ -7,7 +7,7 @@ import { Check, ChevronRight, Eye, Flame, Lightbulb, RotateCcw, Timer, Trophy, X
 import { cn } from "@/lib/cn";
 import { PUZZLES, PUZZLE_THEMES, type Puzzle } from "@/lib/data/puzzles";
 import { DEFAULT_PROGRESS, loadProgress, puzzleDelta, saveProgress, type PuzzleProgress } from "@/lib/puzzleProgress";
-import { playSound } from "@/lib/sound";
+import { playSound, soundForMove } from "@/lib/sound";
 import { dailyPuzzle, loadDaily, saveDaily } from "@/lib/daily";
 import { backendConfigured, rpc } from "@/lib/backend/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -196,7 +196,7 @@ export function PuzzleTrainer({ initialId }: { initialId?: string }) {
       return true;
     }
 
-    playSound(g.isCheckmate() ? "end" : move.captured ? "capture" : "move");
+    soundForMove(move, g.isCheckmate());
     const nextStep = step + 1;
     if (nextStep >= puzzle.solution.length) {
       setStatus("solved");
@@ -207,7 +207,7 @@ export function PuzzleTrainer({ initialId }: { initialId?: string }) {
     setStatus("correct");
     timers.current.push(setTimeout(() => {
       const reply = g.move(puzzle.solution[nextStep]);
-      playSound(reply.captured ? "capture" : "move");
+      soundForMove(reply);
       setFen(g.fen());
       setFlash({ square: reply.to, ok: true, from: reply.from });
       setStep(nextStep + 1);

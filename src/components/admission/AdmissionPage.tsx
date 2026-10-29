@@ -6,7 +6,7 @@ import { AlertTriangle, Check, Clock, Lock, ShieldCheck, X } from "lucide-react"
 import { cn } from "@/lib/cn";
 import { PUZZLES, type Puzzle } from "@/lib/data/puzzles";
 import { ANSWER_MAX, ANSWER_MIN, NIM_SECONDS, PUZZLE_SECONDS, QUESTION, loadAdmission, nimBest, randomHeaps, retryDate, submitAdmission, type AdmissionRecord } from "@/lib/admission";
-import { playSound } from "@/lib/sound";
+import { playSound, soundForMove } from "@/lib/sound";
 import { Board } from "@/components/board/Board";
 import { NoctuaMark } from "@/components/club/NoctuaMark";
 import { backendConfigured } from "@/lib/backend/client";
@@ -263,7 +263,7 @@ function PuzzleStep({ puzzle, onPass, onFail }: { puzzle: Puzzle; onPass: () => 
       setMistakes((x) => x + 1);
       return false;
     }
-    playSound(m.captured ? "capture" : "move");
+    soundForMove(m);
     setFen(g.fen());
     setFlash({ sq: to, ok: true });
     if (step + 1 >= puzzle.solution.length || g.isCheckmate()) {
@@ -273,7 +273,7 @@ function PuzzleStep({ puzzle, onPass, onFail }: { puzzle: Puzzle; onPass: () => 
     }
     setTimeout(() => {
       const r = g.move(puzzle.solution[step + 1]);
-      playSound(r.captured ? "capture" : "move");
+      soundForMove(r);
       setFen(g.fen());
       setStep(step + 2);
     }, 450);

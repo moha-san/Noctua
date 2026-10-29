@@ -8,7 +8,7 @@ import { BOOK, lineMoves, type BookLine } from "@/lib/data/openingBook";
 import type { Evaluation } from "@/lib/engine/types";
 import { formatEval } from "@/lib/chess/evaluation";
 import { useStockfish } from "@/hooks/useStockfish";
-import { playSound } from "@/lib/sound";
+import { playSound, soundForMove } from "@/lib/sound";
 import { Board } from "@/components/board/Board";
 import { EvalBar } from "@/components/board/EvalBar";
 
@@ -75,7 +75,7 @@ export function OpeningExplorer() {
     const c = new Chess(fen);
     try {
       const m = c.move(san);
-      playSound(m.captured ? "capture" : "move");
+      soundForMove(m);
       setMoves([...moves, m.san]);
       return true;
     } catch {
@@ -88,7 +88,7 @@ export function OpeningExplorer() {
     const c = new Chess(fen);
     try {
       const m = c.move({ from: sourceSquare, to: targetSquare, promotion: "q" });
-      playSound(m.captured ? "capture" : "move");
+      soundForMove(m);
       setMoves([...moves, m.san]);
       return true;
     } catch {

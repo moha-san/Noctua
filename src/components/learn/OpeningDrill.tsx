@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronRight, Eye, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { BOOK, lineMoves, type BookLine } from "@/lib/data/openingBook";
-import { playSound } from "@/lib/sound";
+import { playSound, soundForMove } from "@/lib/sound";
 import { Board } from "@/components/board/Board";
 
 const KEY = "athenaeum-opening-drill";
@@ -69,7 +69,7 @@ export function OpeningDrill() {
     if (turn !== side) {
       const t = setTimeout(() => {
         const m = new Chess(fen).move(moves[ply]);
-        playSound(m.captured ? "capture" : "move");
+        soundForMove(m);
         setFlash({ from: m.from, to: m.to, ok: true });
         setPly((p) => p + 1);
       }, ply === 0 ? 500 : 450);
@@ -103,7 +103,7 @@ export function OpeningDrill() {
       return false;
     }
     if (m.san === moves[ply]) {
-      playSound(m.captured ? "capture" : "move");
+      soundForMove(m);
       setFlash({ from: m.from, to: m.to, ok: true });
       setStatus("playing");
       setPly(ply + 1);

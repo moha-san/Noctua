@@ -5,7 +5,8 @@ import { Check, Download, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { BOARD_THEMES, DEFAULT_SETTINGS, loadSettings, saveSettings, type BoardTheme, type Settings } from "@/lib/settings";
 import { clearHistory, loadGames } from "@/lib/history";
-import { playSound } from "@/lib/sound";
+import { playSound, setSoundVolume, soundForMove, type SoundKind } from "@/lib/sound";
+import { Chess } from "chess.js";
 import { Board } from "@/components/board/Board";
 import { Card } from "@/components/ui/Card";
 import { AuthPanel } from "@/components/account/AuthPanel";
@@ -35,6 +36,40 @@ function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange
   );
 }
 
+const PREVIEW = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3";
+
+/** Tablero de prueba: se puede mover para ver las ayudas y oír los sonidos. */
+function PreviewBoard() {
+  const [fen, setFen] = useState(PREVIEW);
+  const [last, setLast] = useState<{ from: string; to: string } | null>(null);
+  return (
+    <>
+      <Board
+        id="settings-preview"
+        position={fen}
+        squareStyles={last ? { [last.from]: { background: "rgba(196,160,72,0.4)" }, [last.to]: { background: "rgba(196,160,72,0.55)" } } : {}}
+        onPieceDrop={({ sourceSquare, targetSquare }) => {
+          if (!targetSquare) return false;
+          const c = new Chess(fen);
+          try {
+            const m = c.move({ from: sourceSquare, to: targetSquare, promotion: "q" });
+            soundForMove(m, c.isGameOver());
+            setFen(c.fen());
+            setLast({ from: m.from, to: m.to });
+            return true;
+          } catch {
+            return false;
+          }
+        }}
+      />
+      <div className="mt-3 flex items-center justify-between text-[13px] text-ink-4">
+        <span>Prueba a mover las piezas de los dos colores.</span>
+        {fen !== PREVIEW && <button className="text-wood underline underline-offset-4 hover:text-gold dark:text-gold" onClick={() => { setFen(PREVIEW); setLast(null); }}>Reiniciar</button>}
+      </div>
+    </>
+  );
+}
+
 export function SettingsPage() {
   const [s, setS] = useState<Settings>(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState(false);
@@ -48,6 +83,7 @@ export function SettingsPage() {
     saveSettings(n);
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
+    if (k === "volume") setSoundVolume(v as number);
     if (k === "sound" && v) playSound("move");
   };
 
@@ -125,7 +161,31 @@ export function SettingsPage() {
           <div className="mt-4 divide-y divide-line border-t border-line">
             <Toggle label="Coordenadas" hint="Letras y números en el borde del tablero" checked={s.coordinates} onChange={(v) => set("coordinates", v)} />
             <Toggle label="Animaciones" hint="Las piezas se deslizan al mover" checked={s.animations} onChange={(v) => set("animations", v)} />
-            <Toggle label="Sonido" hint="Movimientos, capturas, jaques y fin de partida" checked={s.sound} onChange={(v) => set("sound", v)} />
+            <Toggle label="Mostrar jugadas posibles" hint="Puntos en las casillas a las que puede ir la pieza que tocas" checked={s.legalHints} onChange={(v) => set("legalHints", v)} />
+            {s.animations && (
+              <div className="flex flex-wrap items-center justify-between gap-3 py-4">
+                <span>
+                  <span className="block text-[15px] text-ink">Velocidad de las piezas</span>
+                  <span className="block text-[13px] text-ink-4">Lo rápido que se deslizan al mover</span>
+                </span>
+                <span className="flex rounded-xl border border-line p-1">
+                  {([["rapida", "Rápida"], ["normal", "Normal"], ["lenta", "Lenta"]] as const).map(([k, l]) => (
+                    <button key={k} onClick={() => set("animSpeed", k)} className={cn("rounded-lg px-3 py-1.5 text-[13px] transition", s.animSpeed === k ? "bg-ink text-paper" : "text-ink-3 hover:text-ink")}>{l}</button>
+                  ))}
+                </span>
+              </div>
+            )}
+            <Toggle label="Sonido" hint="Mover, capturar, enrocar, jaque, coronar y fin de partida" checked={s.sound} onChange={(v) => set("sound", v)} />
+            {s.sound && (
+              <div className="flex flex-wrap items-center justify-between gap-3 py-4">
+                <span className="block text-[15px] text-ink">Volumen</span>
+                <span className="flex items-center gap-3">
+                  <input type="range" min={5} max={100} step={5} value={s.volume} aria-label="Volumen" className="w-40 accent-[#a07a34]" onChange={(e) => setS({ ...s, volume: Number(e.target.value) })} onPointerUp={() => { set("volume", s.volume); playSound("capture"); }} onKeyUp={() => set("volume", s.volume)} />
+                  <span className="w-9 text-right text-[13px] tabular-nums text-ink-3">{s.volume}</span>
+                  <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => { const seq: SoundKind[] = ["move", "capture", "castle", "check", "promote"]; seq.forEach((k, i) => setTimeout(() => playSound(k), i * 450)); }}>Probar</button>
+                </span>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -150,7 +210,7 @@ export function SettingsPage() {
       <aside className="xl:sticky xl:top-[116px] xl:h-fit">
         <Card className="p-5">
           <p className="label mb-4">Vista previa</p>
-          <Board id="settings-preview" position="r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3" allowDragging={false} />
+          <PreviewBoard />
         </Card>
       </aside>
     </div>
