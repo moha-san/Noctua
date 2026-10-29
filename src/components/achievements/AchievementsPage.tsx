@@ -5,6 +5,7 @@ import { Bot, GraduationCap, Lock, Puzzle, ShieldCheck, Swords, type LucideIcon 
 import { cn } from "@/lib/cn";
 import { computeAchievements, loadData, loadSeen, saveSeen, type AchievementState, type Category } from "@/lib/achievements";
 import { useAuth } from "@/hooks/useAuth";
+import { rpc } from "@/lib/backend/client";
 
 const ICON: Record<Category, LucideIcon> = { Partidas: Swords, Rivales: Bot, Problemas: Puzzle, Aprender: GraduationCap, Club: ShieldCheck };
 const TIER = {
@@ -28,6 +29,8 @@ export function AchievementsPage() {
     const done = l.filter((a) => a.done).map((a) => a.id);
     setFresh(done.filter((id) => !seen.includes(id)));
     saveSeen(done);
+    if (profile && done.length) void rpc("sync_achievements", { p_ids: done }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.status]);
 
   const done = list?.filter((a) => a.done).length ?? 0;

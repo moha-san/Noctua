@@ -13,6 +13,7 @@ import { saveReviewPgn, withHeaders } from "@/lib/reviewStore";
 import { Board } from "@/components/board/Board";
 import { PromotionPicker, type PromotionPiece } from "@/components/board/PromotionPicker";
 import { AuthPanel } from "@/components/account/AuthPanel";
+import { profileHref } from "@/components/profile/ProfilePage";
 
 export type OnlineGame = {
   id: string;
@@ -430,7 +431,7 @@ function TopPlayers({ me }: { me: string }) {
           {rows.map((r, i) => (
             <li key={r.id} className={cn("flex items-center gap-3 rounded-lg px-2 py-1 text-[14px]", r.id === me && "bg-gold/10")}>
               <span className="w-5 text-right tabular-nums text-ink-4">{i + 1}</span>
-              <span className="min-w-0 flex-1 truncate text-ink">{r.username}</span>
+              <Link href={profileHref(r.username)} className="min-w-0 flex-1 truncate text-ink hover:text-gold">{r.username}</Link>
               <span className="font-serif tabular-nums text-ink-2">{r.rating}</span>
             </li>
           ))}
@@ -476,7 +477,7 @@ function RecentOnline({ me }: { me: string }) {
           return (
             <li key={g.id} className="flex flex-wrap items-center gap-4 px-6 py-3.5">
               <span className={cn("h-3 w-3 rounded-[3px] ring-1 ring-line", white ? "bg-ivory" : "bg-ebony")} />
-              <span className="min-w-0 flex-1 truncate font-serif text-[16px] text-ink">{opp}<span className="ml-2 text-[13px] text-ink-4">{g.time_control} · {g.reason}</span></span>
+              <span className="min-w-0 flex-1 truncate font-serif text-[16px] text-ink"><Link href={profileHref(opp)} className="hover:text-gold">{opp}</Link><span className="ml-2 text-[13px] text-ink-4">{g.time_control} · {g.reason}</span></span>
               <span className={cn("text-[12px] font-semibold uppercase tracking-[0.14em]", score === "win" ? "text-good" : score === "loss" ? "text-bad" : "text-ink-3")}>{score === "win" ? "Victoria" : score === "loss" ? "Derrota" : "Tablas"}</span>
               {change != null && <span className={cn("w-10 text-right tabular-nums text-[14px]", change > 0 ? "text-good" : change < 0 ? "text-bad" : "text-ink-4")}>{change > 0 ? "+" : ""}{change}</span>}
               <Link href="/review?game=custom" onClick={() => saveReviewPgn(pgn())} className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs text-ink-2 hover:border-gold"><Microscope className="h-3.5 w-3.5" /> Analizar</Link>
@@ -878,7 +879,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
 function PlayerBar({ name, rating, ms, active }: { name: string; rating: number; ms: number; active: boolean }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <p className="min-w-0 truncate font-serif text-[17px] text-ink">{name} <span className="text-[14px] text-ink-4">({rating})</span></p>
+      <p className="min-w-0 truncate font-serif text-[17px] text-ink">{name === "…" ? name : <Link href={profileHref(name)} className="hover:text-gold">{name}</Link>} <span className="text-[14px] text-ink-4">({rating})</span></p>
       <span className={cn("rounded-lg px-3 py-1.5 font-serif text-[20px] tabular-nums ring-1", active ? (ms < 20000 ? "bg-bad/15 text-bad ring-bad/40" : "bg-ink text-paper ring-ink") : "bg-paper-2 text-ink-3 ring-line")}>{fmtClock(ms)}</span>
     </div>
   );

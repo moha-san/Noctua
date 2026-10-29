@@ -667,12 +667,66 @@ begin
   end loop;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Perfiles públicos: biografía, logros y resumen de partidas
+-- ---------------------------------------------------------------------
+alter table public.profiles add column if not exists bio text not null default '';
+alter table public.profiles add column if not exists achievements text[] not null default '{}';
+
+create or replace function public.update_bio(p_bio text) returns void
+language sql security definer set search_path = public as $$
+  update public.profiles set bio = left(trim(coalesce(p_bio, '')), 240) where id = auth.uid();
+$$;
+
+-- La web guarda aquí los logros conseguidos para mostrarlos en el perfil
+create or replace function public.sync_achievements(p_ids text[]) returns void
+language sql security definer set search_path = public as $$
+  update public.profiles set achievements = (
+    select coalesce(array_agg(distinct x order by x), '{}') from unnest(achievements || p_ids) x where x ~ '^[a-z0-9-]{2,30}$'
+  ) where id = auth.uid() and coalesce(array_length(p_ids, 1), 0) <= 100;
+$$;
+
+create or replace function public.profile_public(p_username text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare p public.profiles; res jsonb;
+begin
+  select * into p from public.profiles where lower(username) = lower(trim(p_username));
+  if p.id is null then return null; end if;
+  select jsonb_build_object(
+    'profile', jsonb_build_object('id', p.id, 'username', p.username, 'country', p.country, 'rating', p.rating, 'games', p.games,
+       'status', p.status, 'member_number', p.waitlist_number, 'created_at', p.created_at, 'bio', p.bio, 'achievements', to_jsonb(p.achievements)),
+    'record', (select jsonb_build_object(
+        'wins', count(*) filter (where (result = '1-0' and white = p.id) or (result = '0-1' and black = p.id)),
+        'draws', count(*) filter (where result = '1/2-1/2'),
+        'losses', count(*) filter (where (result = '0-1' and white = p.id) or (result = '1-0' and black = p.id)),
+        'peak', greatest(p.rating, coalesce(max(case when white = p.id then white_rating + greatest(rating_change, 0) else black_rating + greatest(-rating_change, 0) end), p.rating)))
+      from public.games where status = 'finished' and p.id in (white, black)),
+    'history', coalesce((select jsonb_agg(r order by r.at) from (
+        select updated_at as at, case when white = p.id then white_rating + coalesce(rating_change, 0) else black_rating - coalesce(rating_change, 0) end as rating
+        from public.games where status = 'finished' and p.id in (white, black) order by updated_at desc limit 40) r), '[]'::jsonb),
+    'recent', coalesce((select jsonb_agg(r order by r.at desc) from (
+        select g.id, g.updated_at as at, g.time_control, g.result, g.reason, g.moves, g.white = p.id as white,
+          case when g.white = p.id then g.rating_change else -g.rating_change end as change,
+          o.username as opponent, case when g.white = p.id then g.black_rating else g.white_rating end as opponent_rating
+        from public.games g join public.profiles o on o.id = case when g.white = p.id then g.black else g.white end
+        where g.status = 'finished' and p.id in (g.white, g.black) order by g.updated_at desc limit 10) r), '[]'::jsonb),
+    'medals', coalesce((select jsonb_agg(m order by m.at desc) from (
+        select t.name, t.starts_at as at, x.rank, x.points from public.tournaments t
+        join lateral (select tp.user_id, tp.points, rank() over (order by tp.points desc, tp.wins desc) as rank
+                      from public.tournament_players tp where tp.tournament_id = t.id and tp.games > 0) x on x.user_id = p.id
+        where t.ends_at < now() and x.rank <= 3) m), '[]'::jsonb),
+    'playing', (select g.id from public.games g where g.status = 'playing' and p.id in (g.white, g.black) limit 1)
+  ) into res;
+  return res;
+end $$;
+
 -- Permisos: la web solo puede llamar a estas funciones
 revoke all on all functions in schema private from anon, authenticated, public;
 revoke execute on all functions in schema public from anon, public;
 grant execute on function public.adm_status, public.adm_start, public.adm_puzzle_move, public.adm_nim_move, public.adm_answer, public.adm_strike,
   public.update_profile, public.mm_find, public.mm_cancel, public.game_move, public.game_claim, public.game_resign, public.game_draw,
   public.challenge_create, public.challenge_status, public.challenge_accept, public.challenge_cancel,
-  public.tour_list, public.tour_join, public.tour_leave, public.tour_pair to authenticated;
-grant execute on function public.tour_list to anon;
+  public.tour_list, public.tour_join, public.tour_leave, public.tour_pair,
+  public.update_bio, public.sync_achievements, public.profile_public to authenticated;
+grant execute on function public.tour_list, public.profile_public to anon;
 grant execute on function public.adm_status to anon;

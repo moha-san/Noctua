@@ -9,7 +9,7 @@ export function toHash(href: string) {
   const name = path.replace(/^\//, "") || "dashboard";
   const p = new URLSearchParams(query);
   const extra = p.get("game") ?? p.get("id");
-  return `#${name}${extra ? `-${extra}` : ""}`;
+  return `#${name}${extra ? `-${encodeURIComponent(extra)}` : ""}`;
 }
 
 const subscribe = (cb: () => void) => {
@@ -20,6 +20,9 @@ const getHash = () => window.location.hash.slice(1) || "dashboard";
 
 export function useRoute() {
   const raw = useSyncExternalStore(subscribe, getHash, () => "dashboard");
-  const [name, extra] = raw.split("-");
-  return { path: `/${name}`, extra: extra ?? null };
+  // Solo el primer guion separa la sección del dato (un nombre de usuario puede llevar guiones)
+  const i = raw.indexOf("-");
+  const name = i < 0 ? raw : raw.slice(0, i);
+  const extra = i < 0 ? null : decodeURIComponent(raw.slice(i + 1));
+  return { path: `/${name}`, extra };
 }

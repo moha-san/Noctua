@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { LogIn, LogOut, UserPlus } from "lucide-react";
+import Link from "next/link";
+import { LogIn, LogOut, UserPlus, UserRound } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -29,7 +30,10 @@ export function AuthPanel({ title = "Tu cuenta del club", compact = false }: { t
             <p className="text-[13px] text-ink-3">{profile ? `${STATUS[profile.status]} · Elo online ${profile.rating}` : user.email}</p>
           </div>
         </div>
-        <button className="btn-ghost" onClick={() => signOut()}><LogOut className="h-4 w-4" /> Cerrar sesión</button>
+        <div className="flex flex-wrap gap-2">
+          {profile && <Link href={`/profile?id=${encodeURIComponent(profile.username)}`} className="btn-ghost"><UserRound className="h-4 w-4" /> Mi perfil</Link>}
+          <button className="btn-ghost" onClick={() => signOut()}><LogOut className="h-4 w-4" /> Cerrar sesión</button>
+        </div>
       </div>
     );
 

@@ -1,4 +1,4 @@
-import { BarChart3, Info, ShieldCheck, GraduationCap, History, Settings, Crown, Dices, Home, Microscope, Puzzle, Swords, Trophy, Users, Wifi, Bot, Medal, type LucideIcon } from "lucide-react";
+import { BarChart3, Info, ShieldCheck, GraduationCap, History, Settings, Crown, Dices, Home, Microscope, Puzzle, Swords, Trophy, Users, Wifi, Bot, Medal, UserRound, type LucideIcon } from "lucide-react";
 
 export type NavItem = {
   href: string;
@@ -31,6 +31,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/admission", label: "Prueba de admisión", short: "Admisión", group: "Comunidad", icon: ShieldCheck, keywords: "noctua entrar club prueba acceso" },
   { href: "/stats", label: "Estadísticas", short: "Estadísticas", group: "Comunidad", icon: BarChart3, keywords: "aperturas rendimiento" },
   { href: "/ranking", label: "Clasificación", short: "Ranking", group: "Comunidad", icon: Crown, keywords: "clasificación leaderboard rangos" },
+  { href: "/profile", label: "Mi perfil", short: "Perfil", group: "Cuenta", icon: UserRound, keywords: "perfil público medallas elo cuenta" },
   { href: "/settings", label: "Ajustes", short: "Ajustes", group: "Cuenta", icon: Settings, keywords: "configuración perfil tablero sonido nombre colores" },
   { href: "/legal", label: "Información", short: "Info", group: "Cuenta", icon: Info, keywords: "acerca de términos privacidad contacto ayuda" },
 ];

@@ -7,7 +7,9 @@ import { rpc, sb } from "@/lib/backend/client";
 import { useAuth } from "@/hooks/useAuth";
 import { playSound } from "@/lib/sound";
 import { AuthPanel } from "@/components/account/AuthPanel";
+import Link from "next/link";
 import { GameView } from "@/components/online/OnlinePlay";
+import { profileHref } from "@/components/profile/ProfilePage";
 
 export type Arena = {
   id: string;
@@ -270,7 +272,7 @@ function ArenaRoom({ arena, onBack, onChanged }: { arena: Arena; onBack: () => v
                   <tr key={r.user_id} className={cn(r.user_id === user?.id && "bg-gold/10", !r.active && "opacity-60")}>
                     <td className="py-3 pl-6 pr-4 tabular-nums text-ink-4">{i + 1}</td>
                     <td className="px-4 py-3 text-ink">
-                      {r.username ?? "…"}
+                      {r.username ? <Link href={profileHref(r.username)} className="hover:text-gold">{r.username}</Link> : "…"}
                       {r.streak >= 2 && <Flame className="ml-1.5 inline h-4 w-4 text-bad" aria-label="En racha: puntos dobles" />}
                     </td>
                     <td className="px-4 py-3 tabular-nums text-ink-3">{r.games}</td>
