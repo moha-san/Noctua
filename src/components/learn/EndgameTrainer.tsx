@@ -8,16 +8,19 @@ import { useStockfish } from "@/hooks/useStockfish";
 import { Board, lastMoveStyles } from "@/components/board/Board";
 import { PromotionPicker } from "@/components/board/PromotionPicker";
 
-type Goal = "mate" | "promote";
+type Goal = "mate" | "promote" | "hold";
 type Lesson = { id: string; title: string; level: "Fácil" | "Medio" | "Difícil"; fen: string; goal: Goal; par: number; tips: string[] };
 
-/** Finales básicos verificados con Stockfish (todos ganan las blancas). */
+/** Finales verificados con Stockfish. Juegas con blancas: ganas, coronas o aguantas las tablas. */
 const LESSONS: Lesson[] = [
   { id: "kq", title: "Dama y rey contra rey", level: "Fácil", fen: "8/8/8/4k3/8/8/8/3QK3 w - - 0 1", goal: "mate", par: 10, tips: ["Usa la dama para encerrar al rey en un rectángulo cada vez más pequeño.", "Cuidado con el ahogado: deja siempre una casilla libre al rey rival.", "Cuando el rey esté en el borde, acerca tu rey y da mate."] },
   { id: "rr", title: "Dos torres: la escalera", level: "Fácil", fen: "8/8/3k4/8/8/8/8/R3K2R w - - 0 1", goal: "mate", par: 8, tips: ["Una torre corta una fila; la otra da jaque en la siguiente.", "Alterna las torres para empujar al rey hasta el borde.", "Si el rey se acerca a una torre, llévala al otro lado del tablero."] },
   { id: "kr", title: "Torre y rey contra rey", level: "Medio", fen: "8/8/8/4k3/8/8/8/R3K3 w - - 0 1", goal: "mate", par: 18, tips: ["La torre corta al rey; tu rey tiene que ayudar.", "Pon tu rey en oposición (enfrente, con una casilla entre ellos) y da jaque con la torre.", "Si no hay oposición, haz una jugada de espera con la torre."] },
   { id: "kp6", title: "Peón con el rey en sexta", level: "Fácil", fen: "4k3/8/4K3/4P3/8/8/8/8 w - - 0 1", goal: "promote", par: 6, tips: ["Con tu rey delante del peón en sexta fila, la victoria es segura.", "Mueve el rey a un lado para abrir paso al peón.", "Corona sin dejar que el rey negro capture el peón."] },
   { id: "kpo", title: "La oposición", level: "Medio", fen: "8/8/8/3k4/8/3K4/3P4/8 w - - 0 1", goal: "promote", par: 12, tips: ["Los reyes enfrentados con una casilla entre medias: quien no tiene que mover «tiene la oposición».", "Adelanta tu rey antes que el peón.", "El peón en d2 te da una jugada de espera para ganar la oposición."] },
+  { id: "rvp", title: "Torre contra peón", level: "Medio", fen: "8/8/8/8/1K6/5k2/4p3/7R w - - 0 1", goal: "mate", par: 26, tips: ["El peón casi corona: tu torre sola no basta, necesita a tu rey.", "Acerca el rey hacia el peón por el camino más corto (Rc3, Rd2…).", "Gana el peón y luego da mate con torre y rey."] },
+  { id: "lucena", title: "La posición de Lucena", level: "Difícil", fen: "1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1", goal: "promote", par: 12, tips: ["Primero echa al rey negro con un jaque de torre por la columna (Td1+).", "Lleva tu torre a la cuarta fila: hará de «puente» contra los jaques laterales.", "Sal con el rey y, cuando lleguen los jaques, interpón la torre."] },
+  { id: "philidor", title: "La defensa de Philidor", level: "Medio", fen: "8/8/8/8/4pk2/1R6/r7/4K3 w - - 0 1", goal: "hold", par: 15, tips: ["Aquí defiendes: aguanta 15 jugadas sin perder.", "Deja la torre en tu tercera fila para que el rey negro no pueda avanzar.", "Cuando el peón avance a e3, pasa la torre atrás (Tb8) y da jaques desde lejos."] },
   { id: "bb", title: "La pareja de alfiles", level: "Difícil", fen: "8/4k3/8/8/8/8/8/2B1KB2 w - - 0 1", goal: "mate", par: 22, tips: ["Los dos alfiles juntos forman una barrera diagonal.", "Lleva al rey rival a una esquina, con tu rey cerca.", "El mate se da en la esquina; evita el ahogado."] },
 ];
 
@@ -61,6 +64,12 @@ export function EndgameTrainer() {
     if (result) return;
     const g = chess.game;
     const promoted = chess.history.some((m, i) => i % 2 === 0 && m.includes("="));
+    if (lesson.goal === "hold") {
+      const lost = (g.isCheckmate() && g.turn() === "w") || chess.history.some((m, i) => i % 2 === 1 && m.includes("=")) || material(chess.fen) < material(lesson.fen);
+      if (lost) return setResult({ ok: false, text: "Has perdido la defensa. Vuelve a intentarlo: la torre en tu tercera fila es la clave." });
+      if (g.isDraw() || (myMoves >= lesson.par && g.turn() === "w")) return win();
+      return;
+    }
     if (g.isCheckmate() && g.turn() === "b") return win();
     if (lesson.goal === "promote" && promoted && material(chess.fen) >= 9) return win();
     if (g.isStalemate()) return setResult({ ok: false, text: "Rey ahogado: son tablas. Deja siempre una casilla libre al rey rival." });
@@ -71,6 +80,17 @@ export function EndgameTrainer() {
 
   function win() {
     const n = Math.ceil(chess.history.length / 2);
+    if (lesson.goal === "hold") {
+      setResult({ ok: true, text: `¡Tablas aseguradas! Has aguantado ${n} jugadas.` });
+      setDone((d) => {
+        const next = { ...d, [lesson.id]: n };
+        try {
+          localStorage.setItem(KEY, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      return;
+    }
     setResult({ ok: true, text: n <= lesson.par ? `¡Conseguido en ${n} jugadas! Igual o mejor que la referencia (${lesson.par}).` : `¡Conseguido en ${n} jugadas! La referencia es ${lesson.par}: inténtalo más rápido.` });
     setDone((d) => {
       const best = Math.min(d[lesson.id] ?? 999, n);
@@ -108,7 +128,7 @@ export function EndgameTrainer() {
     <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1fr)_380px] xl:gap-12">
       <section className="mx-auto w-full max-w-[min(100%,calc(100dvh-340px))]">
         <div className="mb-3 min-h-[56px]">
-          <p className="label text-gold">{lesson.level} · {lesson.goal === "mate" ? "Da jaque mate" : "Corona el peón"}</p>
+          <p className="label text-gold">{lesson.level} · {lesson.goal === "mate" ? "Da jaque mate" : lesson.goal === "hold" ? "Aguanta las tablas" : "Corona el peón"}</p>
           <p className="mt-1 font-serif text-[24px] text-ink">{lesson.title}</p>
         </div>
         <div className="relative">
