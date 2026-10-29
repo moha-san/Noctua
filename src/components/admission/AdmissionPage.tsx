@@ -9,12 +9,14 @@ import { ANSWER_MAX, ANSWER_MIN, NIM_SECONDS, PUZZLE_SECONDS, QUESTION, loadAdmi
 import { playSound } from "@/lib/sound";
 import { Board } from "@/components/board/Board";
 import { NoctuaMark } from "@/components/club/NoctuaMark";
+import { backendConfigured } from "@/lib/backend/client";
+import { ServerAdmission } from "./ServerAdmission";
 
-type Step = "intro" | "puzzle" | "nim" | "question" | "result";
+export type Step = "intro" | "puzzle" | "nim" | "question" | "result";
 const POOL = PUZZLES.filter((p) => p.rating >= 1100 && p.rating <= 1700);
 
 /** Cuenta atrás en segundos; llama a onEnd al llegar a cero. */
-function useCountdown(seconds: number, active: boolean, onEnd: () => void) {
+export function useCountdown(seconds: number, active: boolean, onEnd: () => void) {
   const [left, setLeft] = useState(seconds);
   const end = useRef(onEnd);
   end.current = onEnd;
@@ -35,12 +37,17 @@ function useCountdown(seconds: number, active: boolean, onEnd: () => void) {
   return left;
 }
 
-const mmss = (x: number) => {
+export const mmss = (x: number) => {
   const s = Math.ceil(x);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
+/** Con servidor: prueba comprobada en Supabase. Sin él: versión local de práctica. */
 export function AdmissionPage() {
+  return backendConfigured ? <ServerAdmission /> : <LocalAdmission />;
+}
+
+function LocalAdmission() {
   const [step, setStep] = useState<Step>("intro");
   const [record, setRecord] = useState<AdmissionRecord | null>(null);
   const [strikes, setStrikes] = useState(0);
@@ -114,26 +121,7 @@ export function AdmissionPage() {
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-[22px] bg-[#0c0c0d] px-7 py-6 text-[#e9e1cf]">
-        <div className="flex items-center gap-4">
-          <NoctuaMark className="h-6 w-auto" />
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.4em] text-[#e9e1cf]/50">Club Noctua</p>
-            <p className="font-serif text-[22px]">Prueba de Admisión</p>
-          </div>
-        </div>
-        <ol className="flex gap-2 text-[12px]">
-          {(["puzzle", "nim", "question"] as const).map((s, i) => {
-            const order = ["intro", "puzzle", "nim", "question", "result"];
-            const done = order.indexOf(step) > order.indexOf(s) && !(step === "result" && record?.status === "failed");
-            return (
-              <li key={s} className={cn("flex items-center gap-1.5 rounded-full border px-3 py-1", step === s ? "border-[#e9e1cf] text-[#e9e1cf]" : done ? "border-[#e9e1cf]/40 text-[#e9e1cf]/80" : "border-[#e9e1cf]/15 text-[#e9e1cf]/40")}>
-                {done ? <Check className="h-3 w-3" /> : <span>{i + 1}</span>} {["Ajedrez", "Lógica", "Pregunta"][i]}
-              </li>
-            );
-          })}
-        </ol>
-      </div>
+      <AdmissionHeader step={step} failed={step === "result" && record?.status === "failed"} />
 
       {warning && inTest && (
         <p className="flex items-center gap-2 rounded-xl bg-warn/10 px-4 py-3 text-[14px] text-ink ring-1 ring-warn/30"><AlertTriangle className="h-4 w-4 text-warn" /> {warning}</p>
@@ -162,7 +150,34 @@ export function AdmissionPage() {
 
 /* ------------------------------------------------------------------ */
 
-function Intro({ onStart }: { onStart: () => void }) {
+export function AdmissionHeader({ step, failed }: { step: Step; failed: boolean }) {
+  return (
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-[22px] bg-[#0c0c0d] px-7 py-6 text-[#e9e1cf]">
+        <div className="flex items-center gap-4">
+          <NoctuaMark className="h-6 w-auto" />
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.4em] text-[#e9e1cf]/50">Club Noctua</p>
+            <p className="font-serif text-[22px]">Prueba de Admisión</p>
+          </div>
+        </div>
+        <ol className="flex gap-2 text-[12px]">
+          {(["puzzle", "nim", "question"] as const).map((s, i) => {
+            const order = ["intro", "puzzle", "nim", "question", "result"];
+            const done = order.indexOf(step) > order.indexOf(s) && !failed;
+            return (
+              <li key={s} className={cn("flex items-center gap-1.5 rounded-full border px-3 py-1", step === s ? "border-[#e9e1cf] text-[#e9e1cf]" : done ? "border-[#e9e1cf]/40 text-[#e9e1cf]/80" : "border-[#e9e1cf]/15 text-[#e9e1cf]/40")}>
+                {done ? <Check className="h-3 w-3" /> : <span>{i + 1}</span>} {["Ajedrez", "Lógica", "Pregunta"][i]}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+export function Intro({ onStart, busy = false }: { onStart: () => void; busy?: boolean }) {
   const [agree, setAgree] = useState(false);
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -197,7 +212,7 @@ function Intro({ onStart }: { onStart: () => void }) {
           <input type="checkbox" className="mt-1 accent-[rgb(var(--gold))]" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
           Acepto las normas y haré la prueba yo solo.
         </label>
-        <button className="btn-primary mt-6 w-full py-3.5" disabled={!agree} onClick={onStart}>Empezar la prueba</button>
+        <button className="btn-primary mt-6 w-full py-3.5" disabled={!agree || busy} onClick={onStart}>{busy ? "Preparando…" : "Empezar la prueba"}</button>
       </aside>
     </div>
   );
@@ -205,7 +220,7 @@ function Intro({ onStart }: { onStart: () => void }) {
 
 /* ------------------------------------------------------------------ */
 
-function Timer({ left, total }: { left: number; total: number }) {
+export function Timer({ left, total }: { left: number; total: number }) {
   return (
     <div className="flex items-center gap-3">
       <Clock className={cn("h-4 w-4", left < 15 ? "text-bad" : "text-ink-4")} />

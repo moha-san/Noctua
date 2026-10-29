@@ -15,6 +15,7 @@ import { TournamentHall } from "@/components/tournament/TournamentHall";
 import { GamesHall } from "@/components/games/GamesHall";
 import { ClubPage } from "@/components/club/ClubPage";
 import RankingPage from "@/app/(app)/ranking/page";
+import { OnlinePlay } from "@/components/online/OnlinePlay";
 import { useRoute } from "./shims/router";
 
 /** Versión de un solo archivo: mismas páginas, enrutado por hash (#/review, #/puzzles…). */
@@ -22,6 +23,7 @@ function App() {
   const { path, extra } = useRoute();
   let page: React.ReactNode;
   if (path === "/play") page = <PlayVsEngine />;
+  else if (path === "/online") page = <OnlinePlay />;
   else if (path === "/review") {
     const game = extra ?? "default";
     page = <GameReview key={game} initialPgn={RECENT_GAMES.find((g) => g.id === game)?.pgn ?? OPERA_GAME_PGN} custom={game === "custom"} />;

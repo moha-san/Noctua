@@ -8,6 +8,8 @@ import { clearHistory, loadGames } from "@/lib/history";
 import { playSound } from "@/lib/sound";
 import { Board } from "@/components/board/Board";
 import { Card } from "@/components/ui/Card";
+import { AuthPanel } from "@/components/account/AuthPanel";
+import { backendConfigured } from "@/lib/backend/client";
 
 const COUNTRIES = ["España", "México", "Argentina", "Colombia", "Chile", "Perú", "Venezuela", "Uruguay", "Estados Unidos", "Otro"];
 
@@ -71,6 +73,7 @@ export function SettingsPage() {
   return (
     <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_420px]">
       <div className="space-y-8">
+        {backendConfigured && <AuthPanel />}
         <Card className="p-6 sm:p-8">
           <div className="flex items-center justify-between">
             <h2 className="font-serif text-[22px] text-ink">Perfil</h2>
