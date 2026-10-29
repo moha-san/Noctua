@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { loadProgress } from "@/lib/puzzleProgress";
 import { Flame } from "lucide-react";
 import { PUZZLES } from "@/lib/data/puzzles";
+import { dailyPuzzle } from "@/lib/daily";
 import { Board } from "@/components/board/Board";
 import { Card } from "@/components/ui/Card";
 
@@ -13,8 +14,7 @@ export function DailyPuzzle() {
   const [p, setP] = useState(PUZZLES[0]);
   const [streak, setStreak] = useState(0);
   useEffect(() => {
-    const day = Math.floor(Date.now() / 86400000);
-    setP(PUZZLES[day % PUZZLES.length]);
+    setP(dailyPuzzle());
     setStreak(loadProgress().streak);
   }, []);
   return (
@@ -31,7 +31,7 @@ export function DailyPuzzle() {
       </div>
       <div className="mt-6 flex items-center justify-between">
         <span className="font-serif text-[15px] italic text-ink-3">{p.theme} · <span className="not-italic text-ink">{p.rating}</span></span>
-        <Link href={`/puzzles?id=${p.id}`} className="btn-primary py-2">Resolver</Link>
+        <Link href="/puzzles?id=daily" className="btn-primary py-2">Resolver</Link>
       </div>
     </Card>
   );

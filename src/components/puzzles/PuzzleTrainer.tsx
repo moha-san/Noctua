@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Chess, type Square } from "chess.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronRight, Eye, Flame, Lightbulb, RotateCcw, Timer, Trophy, X } from "lucide-react";
@@ -7,10 +8,13 @@ import { cn } from "@/lib/cn";
 import { PUZZLES, PUZZLE_THEMES, type Puzzle } from "@/lib/data/puzzles";
 import { DEFAULT_PROGRESS, loadProgress, puzzleDelta, saveProgress, type PuzzleProgress } from "@/lib/puzzleProgress";
 import { playSound } from "@/lib/sound";
+import { dailyPuzzle, loadDaily, saveDaily } from "@/lib/daily";
+import { backendConfigured, rpc } from "@/lib/backend/client";
+import { useAuth } from "@/hooks/useAuth";
 import { Board } from "@/components/board/Board";
 
 type Status = "playing" | "correct" | "wrong" | "solved" | "failed";
-type Mode = "train" | "rush";
+type Mode = "train" | "rush" | "daily";
 
 const GREEN = "rgba(92, 140, 80, 0.6)";
 const RED = "rgba(170, 52, 40, 0.65)";
@@ -21,10 +25,15 @@ const RUSH_LIVES = 3;
 const BY_RATING = [...PUZZLES].sort((a, b) => a.rating - b.rating);
 
 export function PuzzleTrainer({ initialId }: { initialId?: string }) {
-  const [mode, setMode] = useState<Mode>("train");
+  const [mode, setMode] = useState<Mode>(initialId === "daily" ? "daily" : "train");
+  const [rushList, setRushList] = useState<Puzzle[]>(BY_RATING);
+  const [daily, setDaily] = useState<{ seconds: number; mistakes: number; solved: boolean } | null>(null);
+  const [boardKey, setBoardKey] = useState(0);
+  const startedAt = useRef(Date.now());
+  const { user } = useAuth();
   const [theme, setTheme] = useState<string>("Todos");
   const [progress, setProgress] = useState<PuzzleProgress>(DEFAULT_PROGRESS);
-  const [puzzle, setPuzzle] = useState<Puzzle>(() => PUZZLES.find((p) => p.id === initialId) ?? PUZZLES[0]);
+  const [puzzle, setPuzzle] = useState<Puzzle>(() => (initialId === "daily" ? dailyPuzzle() : PUZZLES.find((p) => p.id === initialId) ?? PUZZLES[0]));
 
   const gameRef = useRef(new Chess(puzzle.fen));
   const [fen, setFen] = useState(puzzle.fen);
@@ -46,7 +55,9 @@ export function PuzzleTrainer({ initialId }: { initialId?: string }) {
     const p = loadProgress();
     setProgress(p);
     // Sin problema concreto en la URL: el primero sin resolver cercano a tu nivel
-    if (!initialId) load(nextFor(p, "Todos", null) ?? PUZZLES[0]);
+    setDaily(loadDaily());
+    if (initialId === "daily") load(dailyPuzzle());
+    else if (!initialId) load(nextFor(p, "Todos", null) ?? PUZZLES[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -74,6 +85,7 @@ export function PuzzleTrainer({ initialId }: { initialId?: string }) {
     setSelected(null);
     setMistakes(0);
     setLastDelta(null);
+    startedAt.current = Date.now();
   }, []);
 
   // Reloj del contrarreloj
@@ -90,14 +102,18 @@ export function PuzzleTrainer({ initialId }: { initialId?: string }) {
     if (rush?.done) {
       playSound("end");
       update((p) => ({ ...p, rushBest: Math.max(p.rushBest, rush.score) }));
+      if (user) void rpc("puzzle_submit_rush", { p_score: rush.score }).then(() => setBoardKey((k) => k + 1)).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rush?.done]);
 
   const startRush = () => {
     setMode("rush");
+    // De fácil a difícil, pero mezclando los de dificultad parecida para que cada intento sea distinto
+    const list = [...PUZZLES].sort((a, b) => a.rating + Math.random() * 250 - (b.rating + Math.random() * 250));
+    setRushList(list);
     setRush({ index: 0, score: 0, lives: RUSH_LIVES, endsAt: Date.now() + RUSH_MS, done: false });
-    load(BY_RATING[0]);
+    load(list[0]);
     playSound("start");
   };
 
@@ -105,8 +121,8 @@ export function PuzzleTrainer({ initialId }: { initialId?: string }) {
     setRush((r) => {
       if (!r || r.done) return r;
       const lives = solved ? r.lives : r.lives - 1;
-      const next = { ...r, index: r.index + 1, score: r.score + (solved ? 1 : 0), lives, done: lives <= 0 || r.index + 1 >= BY_RATING.length };
-      if (!next.done) timers.current.push(setTimeout(() => load(BY_RATING[next.index]), solved ? 350 : 700));
+      const next = { ...r, index: r.index + 1, score: r.score + (solved ? 1 : 0), lives, done: lives <= 0 || r.index + 1 >= rushList.length };
+      if (!next.done) timers.current.push(setTimeout(() => load(rushList[next.index]), solved ? 350 : 700));
       return next;
     });
   };
@@ -124,6 +140,13 @@ export function PuzzleTrainer({ initialId }: { initialId?: string }) {
 
   const recordResult = (solved: boolean) => {
     if (mode === "rush") return rushNext(solved);
+    // Problema del día: cuenta el primer intento completo (tiempo y fallos)
+    if (mode === "daily" && solved && !daily) {
+      const r = { seconds: Math.max(1, Math.round((Date.now() - startedAt.current) / 1000)), mistakes, solved: true };
+      setDaily(r);
+      saveDaily(r);
+      if (user) void rpc("puzzle_submit_daily", { p_seconds: r.seconds, p_mistakes: r.mistakes }).then(() => setBoardKey((k) => k + 1)).catch(() => {});
+    }
     if (!firstTry.current) return;
     firstTry.current = false;
     update((p) => {
@@ -278,11 +301,11 @@ export function PuzzleTrainer({ initialId }: { initialId?: string }) {
 
       <aside className="space-y-6">
         <div className="card p-2">
-          <div className="grid grid-cols-2 gap-1">
-            {([["train", "Entrenamiento"], ["rush", "Contrarreloj"]] as const).map(([k, l]) => (
+          <div className="grid grid-cols-3 gap-1">
+            {([["train", "Entrenar"], ["daily", "Del día"], ["rush", "Contrarreloj"]] as const).map(([k, l]) => (
               <button
                 key={k}
-                onClick={() => (k === "rush" ? startRush() : (setMode("train"), setRush(null), goNext()))}
+                onClick={() => (k === "rush" ? startRush() : k === "daily" ? (setMode("daily"), setRush(null), load(dailyPuzzle())) : (setMode("train"), setRush(null), goNext()))}
                 className={cn("rounded-xl py-2.5 text-[14px] transition", mode === k ? "bg-gold/10 font-medium text-ink ring-1 ring-gold/30" : "text-ink-3 hover:text-ink")}
               >
                 {l}
@@ -347,6 +370,16 @@ export function PuzzleTrainer({ initialId }: { initialId?: string }) {
           )}
         </div>
 
+        {mode === "daily" && (
+          <div className="card p-6">
+            <p className="label text-gold">Problema del día</p>
+            <p className="mt-2 text-[14px] text-ink-3">El mismo para todo el club. Cuenta tu primer intento: gana quien lo resuelva sin fallos y en menos tiempo.</p>
+            {daily && <p className="mt-3 font-serif text-[18px] text-ink">Tu resultado: {daily.seconds} s{daily.mistakes ? ` · ${daily.mistakes} fallo${daily.mistakes > 1 ? "s" : ""}` : " · sin fallos"}</p>}
+            {!user && backendConfigured && <p className="mt-3 text-[13px] text-ink-4">Entra con tu cuenta (en Ajustes) para salir en la clasificación.</p>}
+          </div>
+        )}
+        {(mode === "daily" || mode === "rush") && backendConfigured && <PuzzleBoard key={boardKey} kind={mode} />}
+
         {mode === "train" && (
           <div className="card p-3">
             <div className="flex flex-wrap gap-1.5 px-2 pb-3 pt-2">
@@ -388,4 +421,47 @@ function nextFor(p: PuzzleProgress, theme: string, currentId: string | null): Pu
   const fresh = pool.filter((x) => !p.solved.includes(x.id) && !p.failed.includes(x.id));
   const candidates = fresh.length ? fresh : pool;
   return [...candidates].sort((a, b) => Math.abs(a.rating - p.rating) - Math.abs(b.rating - p.rating))[0];
+}
+
+type Board = { daily: { username: string; seconds: number; mistakes: number }[]; daily_count: number; rush_today: { username: string; score: number }[]; rush_week: { username: string; score: number }[] };
+
+/** Clasificación del club: problema del día o contrarreloj. */
+function PuzzleBoard({ kind }: { kind: "daily" | "rush" }) {
+  const [b, setB] = useState<Board | null>(null);
+  const [range, setRange] = useState<"today" | "week">("today");
+  useEffect(() => {
+    rpc<Board>("puzzle_board").then(setB).catch(() => setB(null));
+  }, []);
+  const rows = kind === "daily" ? b?.daily ?? [] : range === "today" ? b?.rush_today ?? [] : b?.rush_week ?? [];
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between gap-3">
+        <p className="label">{kind === "daily" ? `Clasificación de hoy${b ? ` · ${b.daily_count} resueltos` : ""}` : "Mejores del contrarreloj"}</p>
+        {kind === "rush" && (
+          <div className="flex rounded-full border border-line p-0.5 text-[12px]">
+            {([["today", "Hoy"], ["week", "Semana"]] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setRange(k)} className={cn("rounded-full px-3 py-1", range === k ? "bg-gold/15 text-ink" : "text-ink-4")}>{l}</button>
+            ))}
+          </div>
+        )}
+      </div>
+      {!b ? (
+        <p className="mt-3 text-[13px] text-ink-4">Cargando…</p>
+      ) : rows.length === 0 ? (
+        <p className="mt-3 text-[14px] text-ink-3">Aún no hay resultados. ¡Sé el primero!</p>
+      ) : (
+        <ol className="mt-3 space-y-1">
+          {rows.map((r, i) => (
+            <li key={r.username + i} className="flex items-center gap-3 rounded-lg px-2 py-1.5 text-[14px]">
+              <span className={cn("w-6 text-right tabular-nums", i < 3 ? "font-semibold text-gold" : "text-ink-4")}>{i + 1}</span>
+              <Link href={`/profile?id=${encodeURIComponent(r.username)}`} className="min-w-0 flex-1 truncate text-ink hover:text-gold">{r.username}</Link>
+              <span className="font-serif tabular-nums text-ink-2">
+                {"score" in r ? r.score : `${r.seconds} s${r.mistakes ? ` · ${r.mistakes}✗` : ""}`}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
 }

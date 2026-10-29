@@ -720,6 +720,59 @@ begin
   return res;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Problemas: contrarreloj y problema del día con clasificación
+-- ---------------------------------------------------------------------
+create table if not exists public.puzzle_scores (
+  id bigserial primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  kind text not null check (kind in ('rush', 'daily')),
+  day date not null default (now() at time zone 'UTC')::date,
+  score int not null default 0,
+  seconds int,
+  mistakes int,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists puzzle_scores_daily on public.puzzle_scores (user_id, day) where kind = 'daily';
+create index if not exists puzzle_scores_board on public.puzzle_scores (kind, day);
+alter table public.puzzle_scores enable row level security;
+revoke all on public.puzzle_scores from anon, authenticated;
+
+create or replace function public.puzzle_submit_rush(p_score int) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Necesitas iniciar sesión'; end if;
+  if p_score < 0 or p_score > 80 then raise exception 'Puntuación no válida'; end if;
+  -- Un contrarreloj dura como mucho 3 minutos: no se aceptan envíos seguidos
+  if exists (select 1 from public.puzzle_scores where user_id = auth.uid() and kind = 'rush' and created_at > now() - interval '45 seconds') then return; end if;
+  insert into public.puzzle_scores (user_id, kind, score) values (auth.uid(), 'rush', p_score);
+end $$;
+
+create or replace function public.puzzle_submit_daily(p_seconds int, p_mistakes int) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Necesitas iniciar sesión'; end if;
+  if p_seconds < 1 or p_seconds > 86400 or p_mistakes < 0 or p_mistakes > 20 then raise exception 'Resultado no válido'; end if;
+  insert into public.puzzle_scores (user_id, kind, seconds, mistakes, score) values (auth.uid(), 'daily', p_seconds, p_mistakes, case when p_mistakes = 0 then 1 else 0 end)
+    on conflict (user_id, day) where kind = 'daily' do nothing;
+end $$;
+
+create or replace function public.puzzle_board() returns jsonb
+language sql security definer set search_path = public as $$
+  select jsonb_build_object(
+    'daily', coalesce((select jsonb_agg(x) from (
+      select p.username, s.seconds, s.mistakes from public.puzzle_scores s join public.profiles p on p.id = s.user_id
+      where s.kind = 'daily' and s.day = (now() at time zone 'UTC')::date order by s.mistakes, s.seconds, s.created_at limit 20) x), '[]'::jsonb),
+    'daily_count', (select count(*) from public.puzzle_scores where kind = 'daily' and day = (now() at time zone 'UTC')::date),
+    'rush_today', coalesce((select jsonb_agg(x) from (
+      select p.username, max(s.score) as score from public.puzzle_scores s join public.profiles p on p.id = s.user_id
+      where s.kind = 'rush' and s.day = (now() at time zone 'UTC')::date group by p.username order by max(s.score) desc limit 10) x), '[]'::jsonb),
+    'rush_week', coalesce((select jsonb_agg(x) from (
+      select p.username, max(s.score) as score from public.puzzle_scores s join public.profiles p on p.id = s.user_id
+      where s.kind = 'rush' and s.day > (now() at time zone 'UTC')::date - 7 group by p.username order by max(s.score) desc limit 10) x), '[]'::jsonb)
+  );
+$$;
+
 -- Permisos: la web solo puede llamar a estas funciones
 revoke all on all functions in schema private from anon, authenticated, public;
 revoke execute on all functions in schema public from anon, public;
@@ -727,6 +780,7 @@ grant execute on function public.adm_status, public.adm_start, public.adm_puzzle
   public.update_profile, public.mm_find, public.mm_cancel, public.game_move, public.game_claim, public.game_resign, public.game_draw,
   public.challenge_create, public.challenge_status, public.challenge_accept, public.challenge_cancel,
   public.tour_list, public.tour_join, public.tour_leave, public.tour_pair,
-  public.update_bio, public.sync_achievements, public.profile_public to authenticated;
-grant execute on function public.tour_list, public.profile_public to anon;
+  public.update_bio, public.sync_achievements, public.profile_public,
+  public.puzzle_submit_rush, public.puzzle_submit_daily, public.puzzle_board to authenticated;
+grant execute on function public.tour_list, public.profile_public, public.puzzle_board to anon;
 grant execute on function public.adm_status to anon;
