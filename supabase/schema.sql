@@ -1084,6 +1084,15 @@ begin
   return jsonb_build_object('offer', case when ch.creator = auth.uid() then 'me' else 'opp' end, 'code', ch.code, 'game', ch.game);
 end $$;
 
+-- Cuántos jugadores están conectados y cuántas partidas se juegan ahora (para el vestíbulo)
+create or replace function public.club_now() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'online', (select count(*) from public.profiles where last_seen > now() - interval '3 minutes'),
+    'playing', (select count(*) from public.games where status = 'playing' and time_control <> '1d' and updated_at > now() - interval '30 minutes'),
+    'searching', (select count(*) from public.mm_queue));
+$$;
+
 -- Permisos: la web solo puede llamar a estas funciones
 revoke all on all functions in schema private from anon, authenticated, public;
 revoke execute on all functions in schema public from anon, public;
@@ -1095,5 +1104,5 @@ grant execute on function public.adm_status, public.adm_start, public.adm_puzzle
   public.puzzle_submit_rush, public.puzzle_submit_daily, public.puzzle_board,
   public.presence_ping, public.friend_request, public.friend_respond, public.friend_remove, public.friend_list, public.friend_challenge, public.game_chat,
   public.game_focus_lost, public.game_dispute, public.fair_report, public.rematch_offer, public.rematch_status, public.game_abort to authenticated;
-grant execute on function public.tour_list, public.profile_public, public.puzzle_board to anon;
+grant execute on function public.tour_list, public.profile_public, public.puzzle_board, public.club_now to anon, authenticated;
 grant execute on function public.adm_status to anon;

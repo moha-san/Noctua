@@ -631,13 +631,34 @@ function RecentOnline({ me }: { me: string }) {
 }
 
 function Hero() {
+  const [now, setNow] = useState<{ online: number; playing: number; searching: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => rpc<{ online: number; playing: number; searching: number }>("club_now").then((r) => alive && setNow(r)).catch(() => {});
+    load();
+    const t = setInterval(load, 20000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
   return (
-    <div className="flex items-center gap-4 rounded-[22px] bg-[#0c0c0d] px-7 py-6 text-[#e9e1cf]">
+    <div className="flex flex-wrap items-center gap-4 rounded-[22px] bg-[#0c0c0d] px-7 py-6 text-[#e9e1cf]">
       <Wifi className="h-6 w-6" strokeWidth={1.4} />
-      <div>
+      <div className="min-w-0 flex-1">
         <p className="text-[11px] uppercase tracking-[0.4em] text-[#e9e1cf]/50">En directo</p>
         <p className="font-serif text-[22px]">Jugar online</p>
       </div>
+      {now && (
+        <div className="flex gap-5 text-right">
+          {([[now.online, "conectados"], [now.playing, "partidas"], [now.searching, "buscando"]] as const).map(([n, l]) => (
+            <div key={l}>
+              <p className="font-serif text-[22px] tabular-nums leading-none">{n}</p>
+              <p className="mt-1 text-[10.5px] uppercase tracking-[0.2em] text-[#e9e1cf]/50">{l}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
