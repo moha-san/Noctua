@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Athenaeum</title>
+<meta name="description" content="Club de ajedrez: revisión de partidas con Stockfish, problemas y estadísticas. Gratis." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet" />
+<script>
+  try { if (localStorage.getItem("theme") === "nocturno") document.documentElement.dataset.theme = "nocturno"; } catch (e) {}
+  // Stockfish 19 (WASM) va incrustado en este archivo (base64). Se arranca como Worker desde un blob
+  // que sirve el .wasm desde memoria, así funciona incluso abriendo el archivo con doble clic.
+  // Si el navegador no lo permite, la app usa el motor simulado.
+  window.__createStockfishWorker = function () {
+    var wasmB64 = document.getElementById("sf-wasm").textContent.trim();
+    var source = atob(document.getElementById("sf-js").textContent.trim());
+    var prelude =
+      'var __b=atob("' + wasmB64 + '"),__u=new Uint8Array(__b.length);' +
+      'for(var __i=0;__i<__b.length;__i++)__u[__i]=__b.charCodeAt(__i);__b=null;' +
+      'self.fetch=function(){return Promise.resolve(new Response(__u,{headers:{"Content-Type":"application/wasm"}}))};\n';
+    var url = URL.createObjectURL(new Blob([prelude, source], { type: "application/javascript" }));
+    return new Worker(url + "#stockfish.wasm");
+  };
+
+</script>
+<style>:root{--font-inter:"Inter";--font-serif:"Playfair Display";--font-inscription:"Cinzel"}</style>
+<style>/*CSS*/</style>
+</head>
+<body class="min-h-dvh font-sans">
+<div id="root"></div>
+<script id="sf-js" type="text/plain">/*SFJS*/</script>
+<script id="sf-wasm" type="text/plain">/*SFWASM*/</script>
+<script>/*JS*/</script>
+</body>
+</html>

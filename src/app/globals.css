@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ───────── Temas ─────────
+   "biblioteca" (por defecto): pergamino, hueso, nogal y oro viejo.
+   "nocturno": la misma sala de lectura de noche, con luz de lámpara. */
+@layer base {
+  :root {
+    color-scheme: light;
+    --canvas: 239 231 216;
+    --paper: 251 247 239;
+    --paper-2: 245 239 227;
+    --paper-3: 236 227 210;
+    --paper-4: 223 210 187;
+    --ink: 40 29 21;
+    --ink-2: 74 59 47;
+    --ink-3: 111 95 80;
+    --ink-4: 150 134 116;
+    --line: 222 209 186;
+    --gold: 160 122 52;
+    --on-gold: 255 250 240;
+    --wood: 91 58 36;
+    --mahogany: 107 46 34;
+    --good: 79 122 74;
+    --bad: 155 47 37;
+    --warn: 183 131 47;
+    --highlight: 255 255 255;
+    --shadow: 70 45 20;
+    --grain-opacity: 0.35;
+  }
+  [data-theme="nocturno"], [data-theme="dark"] {
+    color-scheme: dark;
+    --canvas: 20 16 12;
+    --paper: 29 23 18;
+    --paper-2: 35 28 22;
+    --paper-3: 45 36 28;
+    --paper-4: 56 45 35;
+    --ink: 239 230 214;
+    --ink-2: 214 199 176;
+    --ink-3: 170 152 128;
+    --ink-4: 128 112 92;
+    --line: 60 49 38;
+    --gold: 201 164 92;
+    --on-gold: 28 22 17;
+    --wood: 120 82 52;
+    --mahogany: 150 70 52;
+    --good: 128 168 111;
+    --bad: 205 102 84;
+    --warn: 214 162 74;
+    --highlight: 255 240 220;
+    --shadow: 0 0 0;
+    --grain-opacity: 0.18;
+  }
+
+  html, body { @apply bg-canvas text-ink antialiased; }
+  body { font-feature-settings: "cv11", "ss01"; }
+  h1, h2, h3, .font-display { @apply font-serif; letter-spacing: -0.01em; }
+  ::selection { @apply bg-gold/30; }
+  * { scrollbar-width: thin; scrollbar-color: rgb(var(--paper-4)) transparent; }
+}
+
+@layer components {
+  /* Textura de papel (SVG inline, sin imágenes externas) + viñeta cálida */
+  .paper-grain {
+    background-image:
+      radial-gradient(ellipse 120% 70% at 50% -10%, rgb(var(--highlight) / 0.55), transparent 60%),
+      radial-gradient(ellipse 80% 60% at 100% 100%, rgb(var(--wood) / 0.07), transparent 70%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.25  0 0 0 0 0.15  0 0 0 0.09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  /* Vetas de mármol muy sutiles para cabeceras */
+  .marble {
+    background-image:
+      linear-gradient(115deg, transparent 40%, rgb(var(--ink) / 0.035) 45%, transparent 52%),
+      linear-gradient(160deg, transparent 60%, rgb(var(--ink) / 0.03) 64%, transparent 70%),
+      linear-gradient(180deg, rgb(var(--paper)), rgb(var(--paper-2)));
+  }
+  .card { @apply rounded-[18px] border border-line bg-paper shadow-card; }
+  .card-hover { @apply transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lift; }
+  .label { @apply text-[10.5px] font-semibold uppercase tracking-[0.22em] text-ink-4; }
+  /* Filete doble, como en las portadas antiguas */
+  .rule-double { @apply relative h-[5px] border-y border-line; }
+  .ornament { @apply flex items-center gap-3 text-gold before:h-px before:flex-1 before:bg-line after:h-px after:flex-1 after:bg-line; }
+
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium tracking-wide transition-all duration-200 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50; }
+  .btn-primary { @apply btn bg-wood text-on-gold shadow-glow hover:bg-mahogany dark:bg-gold dark:hover:brightness-110; }
+  .btn-ghost { @apply btn border border-line bg-paper text-ink-2 hover:border-gold/60 hover:text-ink; }
+  .icon-btn { @apply inline-flex h-10 w-10 items-center justify-center rounded-full border border-line bg-paper text-ink-3 transition hover:border-gold/60 hover:text-ink active:scale-95 disabled:opacity-40; }
+}
+
+/* Accesibilidad: foco visible al navegar con teclado */
+:focus-visible {
+  outline: 2px solid rgb(var(--gold));
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
