@@ -760,6 +760,20 @@ export function GameView({ id, me, onExit, onGame, inTournament = false }: { id:
     return c.fen();
   }, [view, g]);
 
+  // En correspondencia, cada jugada se confirma antes de enviarla
+  const corr = g?.time_control === "1d";
+  const [confirmMv, setConfirmMv] = useState<{ from: string; to: string; promotion?: PromotionPiece; san: string; fen: string } | null>(null);
+  const tentFen = confirmMv?.fen ?? null;
+  const submit = (from: string, to: string, promotion?: PromotionPiece) => {
+    if (!corr) return void send(from, to, promotion);
+    const legal = chess.moves({ square: from as Square, verbose: true }).filter((x) => x.to === to);
+    if (!legal.length) return;
+    if (legal[0].promotion && !promotion) return setPromo({ from, to });
+    const c = new Chess(chess.fen());
+    const m = c.move({ from, to, promotion: promotion ?? "q" });
+    setConfirmMv({ from, to, promotion, san: fmt(m.san), fen: c.fen() });
+  };
+
   // Flechas del teclado para repasar la partida
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -825,6 +839,16 @@ export function GameView({ id, me, onExit, onGame, inTournament = false }: { id:
     setConfirmResign(false);
   };
 
+  // Título de la pestaña: avisa de que te toca aunque estés en otra pestaña
+  useEffect(() => {
+    if (!g || spectator) return;
+    const base = document.title.replace(/^(● Te toca · |Partida terminada · )/, "");
+    document.title = g.status === "finished" ? `Partida terminada · ${base}` : myTurn ? `● Te toca · ${base}` : base;
+    return () => {
+      document.title = base;
+    };
+  }, [myTurn, g?.status, spectator]);
+
   // Aviso sonoro al quedar 10 segundos
   const myMs = color === "w" ? t.w : t.b;
   const warned = useRef(false);
@@ -881,20 +905,27 @@ export function GameView({ id, me, onExit, onGame, inTournament = false }: { id:
         <div className="relative">
           <Board
             id="online"
-            position={viewFen ?? chess.fen()}
+            position={tentFen ?? viewFen ?? chess.fen()}
             boardOrientation={(color === "w") !== flipped ? "white" : "black"}
             player={color}
-            interactive={!spectator && g.status === "playing" && view === null}
-            onMove={(from, to, promotion) => void send(from, to, promotion)}
+            interactive={!spectator && g.status === "playing" && view === null && !confirmMv}
+            onMove={submit}
             squareStyles={styles}
           />
+          {confirmMv && (
+            <div className="absolute inset-x-3 bottom-3 z-10 flex items-center gap-2 rounded-xl bg-paper/95 p-3 shadow-xl ring-1 ring-line backdrop-blur">
+              <span className="min-w-0 flex-1 text-[14px] text-ink">¿Enviar <span className="font-serif font-semibold">{confirmMv.san}</span>?</span>
+              <button className="btn-ghost px-3 py-1.5 text-sm" onClick={() => setConfirmMv(null)}>Cancelar</button>
+              <button className="btn-primary px-4 py-1.5 text-sm" onClick={() => { const m = confirmMv; setConfirmMv(null); void send(m.from, m.to, m.promotion); }}>Confirmar</button>
+            </div>
+          )}
           {promo && myTurn && (
             <PromotionPicker
               color={color}
               onPick={(p) => {
                 const pr = promo;
                 setPromo(null);
-                if (p) void send(pr.from, pr.to, p);
+                if (p) submit(pr.from, pr.to, p);
               }}
             />
           )}
