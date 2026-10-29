@@ -5,11 +5,13 @@ import { cn } from "@/lib/cn";
 import { MOVE_CLASS } from "@/lib/chess/classify";
 import type { AnalyzedMove } from "@/lib/chess/analyzeGame";
 import { MoveBadge } from "./MoveBadge";
+import { useSan } from "@/lib/notation";
 
 type Props = { moves: AnalyzedMove[]; ply: number; onSelect: (ply: number) => void };
 
 /** Lista de jugadas en notación algebraica, en dos columnas (blancas / negras). */
 export function MoveList({ moves, ply, onSelect }: Props) {
+  const fmt = useSan();
   const activeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -33,7 +35,7 @@ export function MoveList({ moves, ply, onSelect }: Props) {
         )}
       >
         <MoveBadge cls={m.classification} size="sm" />
-        <span style={highlight ? { color: c.color } : undefined}>{m.san}</span>
+        <span style={highlight ? { color: c.color } : undefined}>{fmt(m.san)}</span>
       </button>
     );
   };

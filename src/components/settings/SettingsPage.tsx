@@ -161,6 +161,17 @@ export function SettingsPage() {
           <div className="mt-4 divide-y divide-line border-t border-line">
             <Toggle label="Coordenadas" hint="Letras y números en el borde del tablero" checked={s.coordinates} onChange={(v) => set("coordinates", v)} />
             <Toggle label="Animaciones" hint="Las piezas se deslizan al mover" checked={s.animations} onChange={(v) => set("animations", v)} />
+            <div className="flex flex-wrap items-center justify-between gap-3 py-4">
+              <span>
+                <span className="block text-[15px] text-ink">Notación de las jugadas</span>
+                <span className="block text-[13px] text-ink-4">Cómo se escriben en la lista de jugadas</span>
+              </span>
+              <span className="flex rounded-xl border border-line p-1">
+                {([["es", "Cf3"], ["en", "Nf3"], ["figurine", "♘f3"]] as const).map(([k, l]) => (
+                  <button key={k} onClick={() => set("notation", k)} className={cn("rounded-lg px-3 py-1.5 text-[13px] transition", s.notation === k ? "bg-ink text-paper" : "text-ink-3 hover:text-ink")}>{l}</button>
+                ))}
+              </span>
+            </div>
             <Toggle label="Coronar siempre a dama" hint="Sin preguntar qué pieza quieres al llegar al final" checked={s.autoQueen} onChange={(v) => set("autoQueen", v)} />
             <Toggle label="Mostrar jugadas posibles" hint="Puntos en las casillas a las que puede ir la pieza que tocas" checked={s.legalHints} onChange={(v) => set("legalHints", v)} />
             {s.animations && (

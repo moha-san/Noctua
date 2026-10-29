@@ -22,10 +22,12 @@ import { EvalGraph } from "./EvalGraph";
 import { MoveBadge } from "./MoveBadge";
 import { MoveList } from "./MoveList";
 import { PgnImport } from "./PgnImport";
+import { useSan } from "@/lib/notation";
 
 type Tab = "review" | "moves";
 
 export function GameReview({ initialPgn, custom = false }: { initialPgn: string; custom?: boolean }) {
+  const fmt = useSan();
   const { engine, name: engineName, isReal } = useStockfish();
   const [pgn, setPgn] = useState(initialPgn);
   // Partida guardada desde un torneo u otra sección
@@ -218,7 +220,7 @@ export function GameReview({ initialPgn, custom = false }: { initialPgn: string;
               <MoveBadge cls={current.classification} size="lg" />
               <div className="min-w-0 flex-1">
                 <p className="font-serif text-[17px] leading-snug text-ink">
-                  {current.san} <span style={{ color: MOVE_CLASS[current.classification].color }}>es {MOVE_CLASS[current.classification].label.toLowerCase()}</span>
+                  {fmt(current.san)} <span style={{ color: MOVE_CLASS[current.classification].color }}>es {MOVE_CLASS[current.classification].label.toLowerCase()}</span>
                 </p>
                 {current.bestMoveSan && current.bestMoveSan !== current.san && current.classification !== "book" ? (
                   <p className="mt-1 text-[13px] text-ink-3">La mejor era <span className="font-serif text-[14px] italic text-good">{current.bestMoveSan}</span></p>
@@ -230,7 +232,7 @@ export function GameReview({ initialPgn, custom = false }: { initialPgn: string;
             </div>
           ) : (
             <p className="rounded-xl bg-paper-2 p-4 font-serif text-[15px] italic text-ink-3">
-              {analysis ? `Posición inicial. Pulsa → para empezar${next ? ` (${next.san})` : ""}.` : "Esperando al motor…"}
+              {analysis ? `Posición inicial. Pulsa → para empezar${next ? ` (${fmt(next.san)})` : ""}.` : "Esperando al motor…"}
             </p>
           )}
           {analysis && <div className="mt-4"><EvalGraph analysis={analysis} ply={ply} onSelect={go} /></div>}

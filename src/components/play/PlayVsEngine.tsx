@@ -17,6 +17,7 @@ import { useStockfish } from "@/hooks/useStockfish";
 import { Board, lastMoveStyles } from "@/components/board/Board";
 import { PromotionPicker } from "@/components/board/PromotionPicker";
 import { EvalBar } from "@/components/board/EvalBar";
+import { useSan } from "@/lib/notation";
 
 type Color = "w" | "b";
 type Setup = { levelId: number; color: Color | "random"; tcId: string; variant?: "standard" | "chess960" };
@@ -203,6 +204,7 @@ function RatingNow() {
 /* ------------------------------------------------------------------ */
 
 function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => void; onRematch: () => void }) {
+  const fmt = useSan();
   const level = LEVELS.find((l) => l.id === initial.levelId) as Level;
   const tc = TIME_CONTROLS.find((t) => t.id === initial.tcId) as TimeControl;
   const timed = tc.base > 0;
@@ -488,7 +490,7 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
                   const san = history[ply];
                   const current = (view ?? history.length) === ply + 1;
                   return san ? (
-                    <button key={k} onClick={() => setView(ply + 1 === history.length ? null : ply + 1)} className={cn("px-2 py-1 text-left text-ink transition hover:bg-gold/15", k ? "rounded-r" : "rounded-l", current && "bg-gold/20 font-semibold")}>{san}</button>
+                    <button key={k} onClick={() => setView(ply + 1 === history.length ? null : ply + 1)} className={cn("px-2 py-1 text-left text-ink transition hover:bg-gold/15", k ? "rounded-r" : "rounded-l", current && "bg-gold/20 font-semibold")}>{fmt(san)}</button>
                   ) : (
                     <span key={k} />
                   );

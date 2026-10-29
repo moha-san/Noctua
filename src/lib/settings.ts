@@ -19,11 +19,13 @@ export type Settings = {
   animSpeed: "rapida" | "normal" | "lenta";
   /** Coronar siempre a dama, sin preguntar */
   autoQueen: boolean;
+  /** Cómo se escriben las jugadas: español (Cf3), inglés (Nf3) o con figuras (♘f3) */
+  notation: "es" | "en" | "figurine";
 };
 
 const KEY = "athenaeum-settings";
 const EVENT = "athenaeum-settings";
-export const DEFAULT_SETTINGS: Settings = { name: USER.name, country: "España", boardTheme: "madera", coordinates: true, animations: true, sound: true, legalHints: true, volume: 70, animSpeed: "normal", autoQueen: false };
+export const DEFAULT_SETTINGS: Settings = { name: USER.name, country: "España", boardTheme: "madera", coordinates: true, animations: true, sound: true, legalHints: true, volume: 70, animSpeed: "normal", autoQueen: false, notation: "es" };
 
 export const BOARD_THEMES: Record<BoardTheme, { label: string; light: string; dark: string; lightText: string; darkText: string }> = {
   madera: { label: "Madera", light: "#ecdcbc", dark: "#a27a52", lightText: "#8a6540", darkText: "#f3e6cc" },

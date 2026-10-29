@@ -17,6 +17,7 @@ import { useFairPlay } from "./useFairPlay";
 import { PromotionPicker, type PromotionPiece } from "@/components/board/PromotionPicker";
 import { AuthPanel } from "@/components/account/AuthPanel";
 import { profileHref } from "@/components/profile/ProfilePage";
+import { useSan } from "@/lib/notation";
 
 export type OnlineGame = {
   id: string;
@@ -599,6 +600,7 @@ function clocks(g: OnlineGame, now: number) {
 }
 
 export function GameView({ id, me, onExit, inTournament = false }: { id: string; me: string; onExit: (again: string | null) => void; inTournament?: boolean }) {
+  const fmt = useSan();
   const [g, setG] = useState<OnlineGame | null>(null);
   const [names, setNames] = useState<Record<string, Pick<Profile, "username" | "rating">>>({});
   const [now, setNow] = useState(Date.now());
@@ -910,7 +912,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
                     const ply = i * 2 + k + 1;
                     const active = view === null ? ply === total : ply === view;
                     return san ? (
-                      <button key={k} onClick={() => setView(ply === total ? null : ply)} className={cn("rounded px-1.5 text-left font-medium text-ink transition hover:bg-paper-2", active && "bg-gold/15")}>{san}</button>
+                      <button key={k} onClick={() => setView(ply === total ? null : ply)} className={cn("rounded px-1.5 text-left font-medium text-ink transition hover:bg-paper-2", active && "bg-gold/15")}>{fmt(san)}</button>
                     ) : <span key={k} />;
                   })}
                 </li>

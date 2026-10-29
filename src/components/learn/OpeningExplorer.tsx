@@ -11,11 +11,13 @@ import { useStockfish } from "@/hooks/useStockfish";
 import { playSound, soundForMove } from "@/lib/sound";
 import { Board } from "@/components/board/Board";
 import { EvalBar } from "@/components/board/EvalBar";
+import { useSan } from "@/lib/notation";
 
 const startsWith = (a: string[], prefix: string[]) => prefix.every((m, i) => a[i] === m);
 
 /** Explorador de aperturas: libro con nombres + valoración de Stockfish. */
 export function OpeningExplorer() {
+  const fmt = useSan();
   const [moves, setMoves] = useState<string[]>([]);
   const [orientation, setOrientation] = useState<"white" | "black">("white");
   const [query, setQuery] = useState("");
@@ -156,7 +158,7 @@ export function OpeningExplorer() {
           {continuations.length === 0 && <p className="px-3 pb-3 text-[13.5px] text-ink-4">Puedes seguir moviendo libremente; el motor sigue valorando la posición.</p>}
           {continuations.map(([san, lines]) => (
             <button key={san} onClick={() => play(san)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-ink/[0.04]">
-              <span className="w-14 shrink-0 font-serif text-[17px] text-ink">{san}</span>
+              <span className="w-14 shrink-0 font-serif text-[17px] text-ink">{fmt(san)}</span>
               <span className="min-w-0 flex-1 truncate text-[13px] text-ink-3">{[...new Set(lines.map((l) => l.name))].slice(0, 3).join(" · ")}</span>
               <span className="text-[12px] tabular-nums text-ink-4">{lines.length}</span>
             </button>
