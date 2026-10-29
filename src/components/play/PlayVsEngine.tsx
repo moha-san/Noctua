@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BarChart3, Flag, Handshake, Microscope, RotateCcw, Shuffle, Undo2, Volume2, VolumeX } from "lucide-react";
+import { BarChart3, Flag, Lightbulb, Repeat, Handshake, Microscope, RotateCcw, Shuffle, Undo2, Volume2, VolumeX } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { Evaluation } from "@/lib/engine/types";
 import { USER } from "@/lib/data/mock";
@@ -102,7 +102,7 @@ function SetupScreen({ setup, onChange, onStart, onMatch, resume, onResume, onDi
           <div className="card flex flex-wrap items-center justify-between gap-4 border-gold/40 p-5">
             <div>
               <p className="font-serif text-[18px] text-ink">Tienes una partida a medias</p>
-              <p className="text-[13px] text-ink-3">Contra {LEVELS.find((l) => l.id === resume.levelId)?.name} · {resume.userColor === "w" ? "con blancas" : "con negras"} · {resume.pgn.split(".").length - 1} jugadas</p>
+              <p className="text-[13px] text-ink-3">Contra {LEVELS.find((l) => l.id === resume.levelId)?.bot} · {resume.userColor === "w" ? "con blancas" : "con negras"} · {resume.pgn.split(".").length - 1} jugadas</p>
             </div>
             <div className="flex gap-2">
               <button className="btn-ghost px-4 py-2 text-sm" onClick={onDiscard}>Descartar</button>
@@ -120,9 +120,13 @@ function SetupScreen({ setup, onChange, onStart, onMatch, resume, onResume, onDi
                 onClick={() => onChange({ ...setup, levelId: l.id })}
                 className={cn("rounded-xl border p-4 text-left transition", l.id === setup.levelId ? "border-gold bg-gold/10 ring-1 ring-gold/40" : "border-line bg-paper hover:border-ink-4")}
               >
-                <span className="text-[12px] tabular-nums text-ink-4">Nivel {l.id}</span>
-                <span className="mt-1 block font-serif text-[17px] leading-tight text-ink">{l.name}</span>
-                <span className="mt-1 block text-[12.5px] tabular-nums text-ink-3">≈ {l.rating} Elo</span>
+                <span className="flex items-center gap-2.5">
+                  <BotAvatar level={l} />
+                  <span className="min-w-0">
+                    <span className="block truncate font-serif text-[17px] leading-tight text-ink">{l.bot}</span>
+                    <span className="block text-[12px] tabular-nums text-ink-4">{l.rating} · {l.name}</span>
+                  </span>
+                </span>
               </button>
             ))}
           </div>
@@ -156,8 +160,14 @@ function SetupScreen({ setup, onChange, onStart, onMatch, resume, onResume, onDi
 
       <aside className="card h-fit p-7 lg:sticky lg:top-[116px]">
         <p className="label">Resumen</p>
-        <p className="mt-3 font-serif text-[26px] leading-tight text-ink">{level.name}</p>
-        <p className="text-[14px] text-ink-3">Nivel {level.id} de 8 · ≈ {level.rating} Elo</p>
+        <div className="mt-4 flex items-center gap-4">
+          <BotAvatar level={level} size="lg" />
+          <div>
+            <p className="font-serif text-[26px] leading-tight text-ink">{level.bot}</p>
+            <p className="text-[14px] text-ink-3">{level.name} · ≈ {level.rating} Elo</p>
+          </div>
+        </div>
+        <p className="mt-4 text-[14px] italic leading-relaxed text-ink-2">«{level.bio}»</p>
         <dl className="mt-6 space-y-3 border-t border-line pt-5 text-[14px]">
           <div className="flex justify-between"><dt className="text-ink-3">Juegas con</dt><dd className="text-ink">{setup.color === "w" ? "Blancas" : setup.color === "b" ? "Negras" : "Al azar"}</dd></div>
           <div className="flex justify-between"><dt className="text-ink-3">Ritmo</dt><dd className="text-ink">{TIME_CONTROLS.find((t) => t.id === setup.tcId)?.label}</dd></div>
@@ -198,6 +208,18 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [sound, setSound] = useState(true);
   const [confirmResign, setConfirmResign] = useState(false);
+  const [flipped, setFlipped] = useState(false);
+  const [hint, setHint] = useState<{ from: string; to: string; fen: string } | null>(null);
+  const [hints, setHints] = useState(0);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === "f" || e.key === "F") setFlipped((x) => !x);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const lastEval = useRef(0);
   const plies = useRef(0);
 
@@ -247,7 +269,7 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
       const saved = saveGame(
         {
           source: "play",
-          opponent: `Ordenador · ${level.name}`,
+          opponent: `${level.bot} (${level.name})`,
           opponentRating: level.rating,
           color: userColor,
           result,
@@ -339,6 +361,16 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
   const { captured, score } = material(chess.fen);
   const history = chess.history;
   const canUndo = !timed && !over && history.length >= (userColor === "w" ? 1 : 2) && !thinking;
+  const canHint = !timed && !over && !!engine && chess.turn === userColor && !thinking;
+  const askHint = () => {
+    if (!engine || !canHint) return;
+    const fen = chess.fen;
+    engine.evaluate(fen, isReal ? 14 : 2).then((ev) => {
+      if (!ev.bestMove) return;
+      setHint({ from: ev.bestMove.slice(0, 2), to: ev.bestMove.slice(2, 4), fen });
+      setHints((h) => h + 1);
+    });
+  };
 
   const Seat = ({ color }: { color: Color }) => {
     const isUser = color === userColor;
@@ -347,10 +379,10 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
     return (
       <div className="flex items-center gap-3 py-2.5">
         <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-full border font-serif text-[15px]", color === "w" ? "border-line bg-ivory text-on-ivory" : "border-ebony bg-ebony text-ivory")}>
-          {isUser ? (myName || USER.name)[0].toUpperCase() : level.id}
+          {isUser ? (myName || USER.name)[0].toUpperCase() : level.bot[0]}
         </span>
         <div className="min-w-0">
-          <p className="truncate font-serif text-[16px] text-ink">{isUser ? myName || USER.name : `Ordenador · ${level.name}`}</p>
+          <p className="truncate font-serif text-[16px] text-ink">{isUser ? myName || USER.name : <>{level.bot} <span className="text-[13px] text-ink-4">({level.rating})</span></>}</p>
           <p className="flex h-[18px] items-center gap-0.5 text-[14px] leading-none text-ink-3">
             {captured[color].map((p, i) => <span key={i} className={color === "w" ? "text-ink" : "text-ink-3"}>{GLYPH[p]}</span>)}
             {adv > 0 && <span className="ml-1.5 text-[12px] tabular-nums text-ink-4">+{adv}</span>}
@@ -382,7 +414,8 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
           <Board
             id="play"
             position={chess.fen}
-            boardOrientation={userColor === "w" ? "white" : "black"}
+            boardOrientation={(userColor === "w") !== flipped ? "white" : "black"}
+            arrows={hint && hint.fen === chess.fen ? [{ startSquare: hint.from, endSquare: hint.to, color: "rgba(79, 122, 74, 0.85)" }] : []}
             onPieceDrop={(a) => !over && chess.turn === userColor && chess.onPieceDrop(a)}
             onSquareClick={(a) => !over && chess.turn === userColor && chess.onSquareClick(a)}
             squareStyles={chess.squareStyles}
@@ -417,7 +450,7 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
       <aside className="card flex min-h-0 flex-col overflow-hidden lg:sticky lg:top-[116px] lg:max-h-[calc(100dvh-148px)]">
         <div className="marble border-b border-line px-6 py-5">
           <p className="label">{tc.kind} · {tc.label}</p>
-          <p className="mt-1.5 font-serif text-[20px] text-ink">Contra {level.name} <span className="text-[15px] text-ink-4">≈ {level.rating}</span></p>
+          <p className="mt-1.5 font-serif text-[20px] text-ink">Contra {level.bot} <span className="text-[15px] text-ink-4">≈ {level.rating}</span></p>
         </div>
 
         <div className="min-h-[180px] flex-1 overflow-y-auto px-4 py-3 font-serif text-[15px]">
@@ -443,11 +476,13 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
               <button className="btn-primary px-3 py-2 text-xs" onClick={() => finish("loss", "Abandono")}>Sí, rendirme</button>
             </div>
           ) : (
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button className="btn-ghost flex-col gap-1 rounded-xl px-1 py-2 text-[11px]" disabled={!canUndo} onClick={takeBack} title={timed ? "Solo en partidas sin reloj" : "Deshacer"}><Undo2 className="h-4 w-4" />Deshacer</button>
               <button className="btn-ghost flex-col gap-1 rounded-xl px-1 py-2 text-[11px]" disabled={!!over || history.length < 2} onClick={offerDraw}><Handshake className="h-4 w-4" />Tablas</button>
               <button className="btn-ghost flex-col gap-1 rounded-xl px-1 py-2 text-[11px]" disabled={!!over || history.length < 1} onClick={() => setConfirmResign(true)}><Flag className="h-4 w-4" />Rendirse</button>
               <button className={cn("btn-ghost flex-col gap-1 rounded-xl px-1 py-2 text-[11px]", showEval && "border-gold text-ink")} onClick={() => setShowEval((s) => !s)}><BarChart3 className="h-4 w-4" />Evaluación</button>
+              <button className="btn-ghost flex-col gap-1 rounded-xl px-1 py-2 text-[11px]" disabled={!canHint} onClick={askHint} title={timed ? "Solo en partidas sin reloj" : "Muestra la mejor jugada"}><Lightbulb className="h-4 w-4" />Pista{hints ? ` (${hints})` : ""}</button>
+              <button className="btn-ghost flex-col gap-1 rounded-xl px-1 py-2 text-[11px]" onClick={() => setFlipped((f) => !f)} title="Girar el tablero (tecla F)"><Repeat className="h-4 w-4" />Girar</button>
             </div>
           )}
           <div className="mt-3 flex items-center justify-between text-[12px] text-ink-4">
@@ -462,7 +497,7 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
 
 function pgnFor(pgn: string, userColor: Color, level: Level, result: Over["result"], tc: TimeControl) {
   const me = loadSettings().name || USER.name;
-  const bot = `Ordenador (${level.name})`;
+  const bot = `${level.bot} (${level.name})`;
   const whiteWon = (result === "win") === (userColor === "w");
   return withHeaders(pgn, {
     Event: `Partida ${tc.kind.toLowerCase()} · ${tc.label}`,
@@ -471,4 +506,19 @@ function pgnFor(pgn: string, userColor: Color, level: Level, result: Over["resul
     Black: userColor === "w" ? bot : me,
     Result: result === "draw" ? "1/2-1/2" : whiteWon ? "1-0" : "0-1",
   });
+}
+
+/** Avatar del bot: inicial sobre un tono que se oscurece con el nivel. */
+function BotAvatar({ level, size = "md" }: { level: Level; size?: "md" | "lg" }) {
+  const tones = ["#d9c9a3", "#cdb98a", "#bfa16b", "#a8834f", "#8a6a3d", "#6b4f2c", "#4a3720", "#1c1712"];
+  const dark = level.id >= 5;
+  return (
+    <span
+      className={cn("grid shrink-0 place-items-center rounded-full font-serif ring-1 ring-black/10", size === "lg" ? "h-14 w-14 text-[24px]" : "h-9 w-9 text-[15px]")}
+      style={{ background: tones[level.id - 1], color: dark ? "#efe6d2" : "#2a2016" }}
+      aria-hidden
+    >
+      {level.bot[0]}
+    </span>
+  );
 }

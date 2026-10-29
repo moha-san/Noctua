@@ -1,15 +1,16 @@
 /** Niveles del ordenador en "Jugar". skill = Skill Level de Stockfish (0-20). */
-export type Level = { id: number; name: string; rating: number; skill: number; depth: number };
+/** bot y bio: personaje del nivel, como en las grandes plataformas */
+export type Level = { id: number; name: string; bot: string; bio: string; rating: number; skill: number; depth: number };
 
 export const LEVELS: Level[] = [
-  { id: 1, name: "Principiante", rating: 600, skill: 0, depth: 1 },
-  { id: 2, name: "Novato", rating: 900, skill: 2, depth: 2 },
-  { id: 3, name: "Aficionado", rating: 1200, skill: 5, depth: 4 },
-  { id: 4, name: "Jugador de club", rating: 1500, skill: 8, depth: 6 },
-  { id: 5, name: "Avanzado", rating: 1800, skill: 12, depth: 8 },
-  { id: 6, name: "Experto", rating: 2000, skill: 15, depth: 10 },
-  { id: 7, name: "Maestro", rating: 2300, skill: 18, depth: 12 },
-  { id: 8, name: "Máximo", rating: 2800, skill: 20, depth: 14 },
+  { id: 1, bot: "Lucas", bio: "Acaba de aprender a mover las piezas. Deja cosas sin defender.", name: "Principiante", rating: 600, skill: 0, depth: 1 },
+  { id: 2, bot: "Marta", bio: "Conoce las reglas y busca capturas, pero no ve más allá.", name: "Novato", rating: 900, skill: 2, depth: 2 },
+  { id: 3, bot: "Diego", bio: "Juega en el parque los domingos. Le gustan los ataques rápidos.", name: "Aficionado", rating: 1200, skill: 5, depth: 4 },
+  { id: 4, bot: "Elena", bio: "Juega torneos en su club y castiga los errores claros.", name: "Jugador de club", rating: 1500, skill: 8, depth: 6 },
+  { id: 5, bot: "Andrés", bio: "Estudia aperturas cada semana. Sólido y paciente.", name: "Avanzado", rating: 1800, skill: 12, depth: 8 },
+  { id: 6, bot: "Sofía", bio: "Campeona regional. Calcula hondo y defiende bien.", name: "Experto", rating: 2000, skill: 15, depth: 10 },
+  { id: 7, bot: "Víctor", bio: "Juega como un maestro. Pocas partidas se le escapan.", name: "Maestro", rating: 2300, skill: 18, depth: 12 },
+  { id: 8, bot: "Stockfish", bio: "El motor a toda potencia. Solo para valientes.", name: "Máximo", rating: 2800, skill: 20, depth: 14 },
 ];
 
 export type TimeControl = { id: string; label: string; kind: string; base: number; inc: number };
