@@ -26,7 +26,7 @@ export default function DashboardPage() {
             Tu racha es de {USER.stats.streak} victorias y tu precisión media ha subido esta semana. ¿Jugamos otra?
           </p>
         </div>
-        <Link href="/play" className="btn-primary w-full px-7 py-3.5 sm:w-auto">
+        <Link href="/online" className="btn-primary w-full px-7 py-3.5 sm:w-auto">
           <Feather className="h-4 w-4" strokeWidth={1.6} /> Nueva partida
         </Link>
       </section>

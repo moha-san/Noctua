@@ -1,4 +1,4 @@
-import { BarChart3, Info, ShieldCheck, GraduationCap, History, Settings, Crown, Dices, Home, Microscope, Puzzle, Swords, Trophy, Users, Wifi, type LucideIcon } from "lucide-react";
+import { BarChart3, Info, ShieldCheck, GraduationCap, History, Settings, Crown, Dices, Home, Microscope, Puzzle, Swords, Trophy, Users, Wifi, Bot, type LucideIcon } from "lucide-react";
 
 export type NavItem = {
   href: string;
@@ -18,8 +18,8 @@ export const NAV_GROUPS = ["Jugar", "Entrenar", "Comunidad"] as const;
 
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Inicio", short: "Inicio", group: "Jugar", icon: Home, keywords: "panel resumen elo", mobile: true },
-  { href: "/play", label: "Jugar", short: "Jugar", group: "Jugar", icon: Swords, keywords: "partida stockfish bot motor", mobile: true },
-  { href: "/online", label: "Jugar online", short: "Online", group: "Jugar", icon: Wifi, keywords: "online rival personas emparejamiento matchmaking en directo" },
+  { href: "/online", label: "Jugar", short: "Jugar", group: "Jugar", icon: Swords, keywords: "online rival personas emparejamiento matchmaking en directo partida", mobile: true },
+  { href: "/play", label: "Jugar con bots", short: "Bots", group: "Jugar", icon: Bot, keywords: "partida stockfish bot motor ordenador niveles" },
   { href: "/tournaments", label: "Torneos", short: "Torneos", group: "Jugar", icon: Trophy, keywords: "suizo copa arena", note: "En vivo", mobile: true },
   { href: "/history", label: "Mis partidas", short: "Partidas", group: "Jugar", icon: History, keywords: "historial partidas jugadas resultados" },
   { href: "/review", label: "Análisis", short: "Análisis", group: "Entrenar", icon: Microscope, keywords: "revisión pgn precisión", note: "Gratis" },

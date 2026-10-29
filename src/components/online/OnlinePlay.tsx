@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Chess, type Square } from "chess.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Flag, Handshake, Loader2, Microscope, Search, Wifi, X } from "lucide-react";
+import { Bot, Flag, Handshake, Loader2, Microscope, Search, Wifi, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { backendConfigured, rpc, sb, type Profile } from "@/lib/backend/client";
 import { refreshProfile, useAuth } from "@/hooks/useAuth";
@@ -11,6 +11,7 @@ import { fmtClock } from "@/lib/play/levels";
 import { playSound, soundForMove } from "@/lib/sound";
 import { saveReviewPgn, withHeaders } from "@/lib/reviewStore";
 import { Board } from "@/components/board/Board";
+import { PromotionPicker, type PromotionPiece } from "@/components/board/PromotionPicker";
 import { AuthPanel } from "@/components/account/AuthPanel";
 
 export type OnlineGame = {
@@ -45,7 +46,19 @@ const RITMOS = [
 /** Partidas online contra otras personas, con emparejamiento por Elo. */
 export function OnlinePlay() {
   const { user, profile, loading } = useAuth();
-  const [tc, setTc] = useState("5+3");
+  const [tc, setTcState] = useState("5+3");
+  const setTc = (v: string) => {
+    setTcState(v);
+    try {
+      localStorage.setItem("athenaeum-online-tc", v);
+    } catch {}
+  };
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("athenaeum-online-tc");
+      if (v && RITMOS.some((r) => r.id === v)) setTcState(v);
+    } catch {}
+  }, []);
   const [searching, setSearching] = useState(false);
   const [waited, setWaited] = useState(0);
   const [gameId, setGameId] = useState<string | null>(null);
@@ -111,10 +124,11 @@ export function OnlinePlay() {
       <div className="mx-auto max-w-3xl space-y-6">
         <Hero />
         <AuthPanel title="Entra para jugar online" />
+        <p className="text-center text-[14px] text-ink-3">¿Prefieres practicar sin cuenta? <Link href="/play" className="text-wood underline underline-offset-4 hover:text-gold dark:text-gold">Juega con bots</Link></p>
       </div>
     );
 
-  if (gameId) return <GameView key={gameId} id={gameId} me={user.id} onExit={() => { setGameId(null); refreshProfile(); }} />;
+  if (gameId) return <GameView key={gameId} id={gameId} me={user.id} onExit={(again) => { setGameId(null); refreshProfile(); if (again) { setTc(again); setWaited(0); setSearching(true); } }} />;
 
   return (
     <div className="mx-auto max-w-[1000px] space-y-8">
@@ -155,12 +169,98 @@ export function OnlinePlay() {
         </div>
         <aside className="space-y-6">
           <AuthPanel compact />
+          <TopPlayers me={user.id} />
+          <Link href="/play" className="card group flex items-center gap-4 p-5 transition hover:border-gold">
+            <Bot className="h-6 w-6 text-gold" strokeWidth={1.5} />
+            <span className="min-w-0 flex-1">
+              <span className="block font-serif text-[17px] text-ink">Jugar con bots</span>
+              <span className="block text-[13px] text-ink-3">Ocho niveles, sin esperas</span>
+            </span>
+          </Link>
           <div className="card p-6 text-[14px] leading-relaxed text-ink-3">
             <p className="font-serif text-[18px] text-ink">Juego limpio</p>
             <p className="mt-2">El servidor lleva el reloj y comprueba cada jugada. Te emparejamos con alguien de Elo parecido; si tarda, ampliamos poco a poco el margen.</p>
           </div>
         </aside>
       </div>
+      <RecentOnline me={user.id} />
+    </div>
+  );
+}
+
+/** Los mejores del servidor por Elo online. */
+function TopPlayers({ me }: { me: string }) {
+  const [rows, setRows] = useState<Pick<Profile, "id" | "username" | "rating" | "games">[] | null>(null);
+  useEffect(() => {
+    sb()?.from("profiles").select("id, username, rating, games").gt("games", 0).order("rating", { ascending: false }).limit(8)
+      .then(({ data }) => setRows(data ?? []));
+  }, []);
+  return (
+    <div className="card p-5">
+      <p className="label">Mejores jugadores online</p>
+      {!rows ? (
+        <p className="mt-3 text-[13px] text-ink-4">Cargando…</p>
+      ) : rows.length === 0 ? (
+        <p className="mt-3 text-[13px] text-ink-3">Aún nadie ha jugado. ¡Sé el primero!</p>
+      ) : (
+        <ol className="mt-3 space-y-1.5">
+          {rows.map((r, i) => (
+            <li key={r.id} className={cn("flex items-center gap-3 rounded-lg px-2 py-1 text-[14px]", r.id === me && "bg-gold/10")}>
+              <span className="w-5 text-right tabular-nums text-ink-4">{i + 1}</span>
+              <span className="min-w-0 flex-1 truncate text-ink">{r.username}</span>
+              <span className="font-serif tabular-nums text-ink-2">{r.rating}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+/** Tus últimas partidas online, con acceso al análisis. */
+function RecentOnline({ me }: { me: string }) {
+  const [rows, setRows] = useState<OnlineGame[]>([]);
+  const [names, setNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const c = sb();
+    if (!c) return;
+    c.from("games").select("*").eq("status", "finished").or(`white.eq.${me},black.eq.${me}`).order("updated_at", { ascending: false }).limit(6)
+      .then(async ({ data }) => {
+        const gs = (data ?? []) as OnlineGame[];
+        setRows(gs);
+        const ids = [...new Set(gs.flatMap((g) => [g.white, g.black]))];
+        if (ids.length) {
+          const { data: ps } = await c.from("profiles").select("id, username").in("id", ids);
+          setNames(Object.fromEntries((ps ?? []).map((p) => [p.id, p.username])));
+        }
+      });
+  }, [me]);
+  if (!rows.length) return null;
+  return (
+    <div className="card overflow-hidden">
+      <p className="label px-6 pt-5">Tus últimas partidas online</p>
+      <ul className="mt-3 divide-y divide-line">
+        {rows.map((g) => {
+          const white = g.white === me;
+          const score = g.result === "1/2-1/2" ? "draw" : g.result === (white ? "1-0" : "0-1") ? "win" : "loss";
+          const change = g.rating_change == null ? null : white ? g.rating_change : -g.rating_change;
+          const opp = names[white ? g.black : g.white] ?? "Rival";
+          const pgn = () => {
+            const c = new Chess();
+            for (const m of g.moves) c.move(m);
+            return withHeaders(c.pgn(), { Event: "Athenaeum online", White: names[g.white] ?? "?", Black: names[g.black] ?? "?", Result: g.result ?? "*", TimeControl: g.time_control });
+          };
+          return (
+            <li key={g.id} className="flex flex-wrap items-center gap-4 px-6 py-3.5">
+              <span className={cn("h-3 w-3 rounded-[3px] ring-1 ring-line", white ? "bg-ivory" : "bg-ebony")} />
+              <span className="min-w-0 flex-1 truncate font-serif text-[16px] text-ink">{opp}<span className="ml-2 text-[13px] text-ink-4">{g.time_control} · {g.reason}</span></span>
+              <span className={cn("text-[12px] font-semibold uppercase tracking-[0.14em]", score === "win" ? "text-good" : score === "loss" ? "text-bad" : "text-ink-3")}>{score === "win" ? "Victoria" : score === "loss" ? "Derrota" : "Tablas"}</span>
+              {change != null && <span className={cn("w-10 text-right tabular-nums text-[14px]", change > 0 ? "text-good" : change < 0 ? "text-bad" : "text-ink-4")}>{change > 0 ? "+" : ""}{change}</span>}
+              <Link href="/review?game=custom" onClick={() => saveReviewPgn(pgn())} className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs text-ink-2 hover:border-gold"><Microscope className="h-3.5 w-3.5" /> Analizar</Link>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -188,7 +288,7 @@ function clocks(g: OnlineGame, now: number) {
   return { w: g.white_ms - (whiteTurn ? spent : 0), b: g.black_ms - (whiteTurn ? 0 : spent) };
 }
 
-function GameView({ id, me, onExit }: { id: string; me: string; onExit: () => void }) {
+function GameView({ id, me, onExit }: { id: string; me: string; onExit: (again: string | null) => void }) {
   const [g, setG] = useState<OnlineGame | null>(null);
   const [names, setNames] = useState<Record<string, Pick<Profile, "username" | "rating">>>({});
   const [now, setNow] = useState(Date.now());
@@ -196,6 +296,9 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: () => vo
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmResign, setConfirmResign] = useState(false);
+  const [promo, setPromo] = useState<{ from: string; to: string } | null>(null);
+  /** Jugada que se está mirando en la lista (null = posición actual) */
+  const [view, setView] = useState<number | null>(null);
   const lastLen = useRef(-1);
   const claiming = useRef(0);
 
@@ -266,6 +369,7 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: () => vo
       if (last) soundForMove(last, c.isGameOver());
     }
     lastLen.current = g.moves.length;
+    setView(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moveCount]);
 
@@ -278,7 +382,28 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: () => vo
   }, [finished]);
 
   const t = g ? clocks(g, now) : { w: 0, b: 0 };
-  const myTurn = !!g && g.status === "playing" && !pending && chess.turn() === color;
+  const myTurn = !!g && g.status === "playing" && !pending && view === null && chess.turn() === color;
+  const total = g?.moves.length ?? 0;
+  /** Premovimiento: jugada preparada durante el turno del rival */
+  const [premove, setPremove] = useState<{ from: string; to: string } | null>(null);
+  const canPremove = !!g && g.status === "playing" && view === null && !pending && chess.turn() !== color;
+  const viewFen = useMemo(() => {
+    if (view === null || !g) return null;
+    const c = new Chess();
+    for (const m of g.moves.slice(0, view)) c.move(m);
+    return c.fen();
+  }, [view, g]);
+
+  // Flechas del teclado para repasar la partida
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      if (e.key === "ArrowLeft") setView((v) => Math.max(0, (v ?? total) - 1));
+      if (e.key === "ArrowRight") setView((v) => (v === null || v + 1 >= total ? null : v + 1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [total]);
 
   // Si al rival se le acaba el tiempo (o no hace su primera jugada), se reclama la victoria
   useEffect(() => {
@@ -293,12 +418,17 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: () => vo
     }
   }, [now, g, t.b, t.w, color, chess, apply]);
 
-  const send = async (from: string, to: string) => {
+  const send = async (from: string, to: string, piece?: PromotionPiece) => {
     if (!g || !myTurn) return false;
+    if (!piece && chess.moves({ square: from as Square, verbose: true }).some((x) => x.to === to && x.promotion)) {
+      setPromo({ from, to });
+      setSelected(null);
+      return false;
+    }
     const c = new Chess(chess.fen());
     let m;
     try {
-      m = c.move({ from, to, promotion: "q" });
+      m = c.move({ from, to, promotion: piece ?? "q" });
     } catch {
       return false;
     }
@@ -328,6 +458,27 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: () => vo
     setConfirmResign(false);
   };
 
+  // Cuando llega tu turno, se juega el premovimiento si es legal
+  useEffect(() => {
+    if (!myTurn || !premove) return;
+    const pm = premove;
+    setPremove(null);
+    const legal = chess.moves({ square: pm.from as Square, verbose: true }).some((m) => m.to === pm.to);
+    if (legal) void send(pm.from, pm.to, "q");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myTurn]);
+
+  // Aviso sonoro al quedar 10 segundos
+  const myMs = color === "w" ? t.w : t.b;
+  const warned = useRef(false);
+  useEffect(() => {
+    if (!g || g.status !== "playing" || g.base_ms < 60000) return;
+    if (myMs < 10000 && myMs > 0 && !warned.current) {
+      warned.current = true;
+      playSound("check");
+    }
+  }, [myMs, g]);
+
   if (!g) return <div className="card p-10 text-center text-ink-4"><Loader2 className="mx-auto h-6 w-6 animate-spin" /> Cargando la partida…</div>;
 
   const opp = color === "w" ? g.black : g.white;
@@ -342,7 +493,11 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: () => vo
     styles[last.from] = { background: "rgba(196,160,72,0.38)" };
     styles[last.to] = { background: "rgba(196,160,72,0.5)" };
   }
-  if (selected) {
+  if (premove) {
+    styles[premove.from] = { background: "rgba(70,110,160,0.45)" };
+    styles[premove.to] = { background: "rgba(70,110,160,0.6)" };
+  }
+  if (selected && !canPremove) {
     styles[selected] = { background: "rgba(120,150,90,0.5)" };
     for (const mv of chess.moves({ square: selected as Square, verbose: true })) styles[mv.to] = { background: "radial-gradient(circle, rgba(0,0,0,0.25) 22%, transparent 24%)" };
   }
@@ -374,14 +529,29 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: () => vo
         <div className="relative">
           <Board
             id="online"
-            position={chess.fen()}
+            position={viewFen ?? chess.fen()}
             boardOrientation={color === "w" ? "white" : "black"}
             onPieceDrop={({ sourceSquare, targetSquare }) => {
-              if (!targetSquare) return false;
+              if (!targetSquare || sourceSquare === targetSquare) return false;
+              if (canPremove) {
+                setPremove({ from: sourceSquare, to: targetSquare });
+                return false;
+              }
               void send(sourceSquare, targetSquare);
               return true;
             }}
             onSquareClick={({ square }) => {
+              if (canPremove) {
+                const p = chess.get(square as Square);
+                if (selected && selected !== square) {
+                  setPremove({ from: selected, to: square });
+                  setSelected(null);
+                } else {
+                  setPremove(null);
+                  setSelected(p && p.color === color ? square : null);
+                }
+                return;
+              }
               if (!myTurn) return;
               if (selected && selected !== square) {
                 const ok = chess.moves({ square: selected as Square, verbose: true }).some((m) => m.to === square);
@@ -390,9 +560,19 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: () => vo
               const p = chess.get(square as Square);
               setSelected(p && p.color === color ? square : null);
             }}
-            canDragPiece={({ piece }) => myTurn && piece.pieceType.startsWith(color)}
+            canDragPiece={({ piece }) => (myTurn || canPremove) && piece.pieceType.startsWith(color)}
             squareStyles={styles}
           />
+          {promo && myTurn && (
+            <PromotionPicker
+              color={color}
+              onPick={(p) => {
+                const pr = promo;
+                setPromo(null);
+                if (p) void send(pr.from, pr.to, p);
+              }}
+            />
+          )}
           {finished && (
             <div className="absolute inset-0 grid place-items-center rounded-[4px] bg-black/45 p-6 backdrop-blur-[2px]">
               <div className="card w-full max-w-sm p-7 text-center">
@@ -401,7 +581,8 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: () => vo
                 {myChange != null && <p className={cn("mt-3 font-serif text-[22px] tabular-nums", myChange > 0 ? "text-good" : myChange < 0 ? "text-bad" : "text-ink-3")}>{myChange > 0 ? "+" : ""}{myChange} Elo</p>}
                 <div className="mt-6 grid gap-2">
                   <Link href="/review?game=custom" onClick={() => saveReviewPgn(pgn())} className="btn-primary py-3"><Microscope className="h-4 w-4" /> Analizar partida</Link>
-                  <button className="btn-ghost py-3" onClick={onExit}>Nueva partida</button>
+                  <button className="btn-ghost py-3" onClick={() => onExit(g.time_control)}><Search className="h-4 w-4" /> Otra partida de {g.time_control}</button>
+                  <button className="text-[13px] text-ink-3 underline-offset-4 hover:underline" onClick={() => onExit(null)}>Volver al inicio</button>
                 </div>
               </div>
             </div>
@@ -435,6 +616,9 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: () => vo
             </div>
           )}
         </div>
+        {view !== null && (
+          <button className="btn-primary w-full" onClick={() => setView(null)}>Volver a la posición actual</button>
+        )}
         <div className="card max-h-[360px] overflow-y-auto p-4">
           {pairs.length === 0 ? (
             <p className="px-2 py-3 text-[14px] italic text-ink-4">Aún no hay jugadas.</p>
@@ -443,8 +627,13 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: () => vo
               {pairs.map(([w, b], i) => (
                 <li key={i} className="contents">
                   <span className="text-ink-4 tabular-nums">{i + 1}.</span>
-                  <span className="font-medium text-ink">{w}</span>
-                  <span className="font-medium text-ink">{b ?? ""}</span>
+                  {[w, b].map((san, k) => {
+                    const ply = i * 2 + k + 1;
+                    const active = view === null ? ply === total : ply === view;
+                    return san ? (
+                      <button key={k} onClick={() => setView(ply === total ? null : ply)} className={cn("rounded px-1.5 text-left font-medium text-ink transition hover:bg-paper-2", active && "bg-gold/15")}>{san}</button>
+                    ) : <span key={k} />;
+                  })}
                 </li>
               ))}
             </ol>

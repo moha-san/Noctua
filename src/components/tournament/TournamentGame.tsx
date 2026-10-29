@@ -7,6 +7,7 @@ import type { Player, Result } from "@/lib/tournament/swiss";
 import { useChessGame } from "@/hooks/useChessGame";
 import { useStockfish } from "@/hooks/useStockfish";
 import { Board } from "@/components/board/Board";
+import { PromotionPicker } from "@/components/board/PromotionPicker";
 
 const START_MS = 10 * 60 * 1000;
 
@@ -127,6 +128,7 @@ export function TournamentGame({ round, opponent, userColor, userName, onFinish 
         squareStyles={chess.squareStyles}
         canDragPiece={({ piece }) => !over && piece.pieceType.startsWith(userColor)}
       />
+      {chess.promotion && <PromotionPicker color={chess.promotion.color} onPick={chess.completePromotion} />}
       <Seat color={userColor} />
 
       <div className="mt-2 flex flex-wrap items-center gap-2">

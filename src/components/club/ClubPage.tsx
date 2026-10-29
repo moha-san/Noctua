@@ -15,7 +15,7 @@ const HALLS = [
   { href: "/review", name: "Análisis de partidas", text: "Informe de precisión con Stockfish 19, sin límites.", tag: "Entrenamiento" },
   { href: "/puzzles", name: "Problemas", text: "Tácticas por tema, puntuación propia y contrarreloj.", tag: "Entrenamiento" },
   { href: "/learn", name: "Aprender", text: "Explorador de aperturas y finales básicos para practicar.", tag: "Entrenamiento" },
-  { href: "/play", name: "Jugar", text: "Ocho niveles de dificultad, reloj y análisis al terminar.", tag: "Competición" },
+  { href: "/online", name: "Jugar", text: "Partidas en directo contra rivales de tu nivel, o contra bots de ocho niveles.", tag: "Competición" },
 ];
 
 const EVENTS = [

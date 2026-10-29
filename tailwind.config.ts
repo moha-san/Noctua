@@ -64,6 +64,7 @@ const config: Config = {
         "flash-red": "flash-red 0.8s ease-out",
         shake: "shake 0.4s ease-in-out",
         "fade-up": "fade-up 0.45s ease-out both",
+        page: "fade-up 0.26s cubic-bezier(.2,.8,.2,1) backwards",
         shimmer: "shimmer 3.2s ease-in-out infinite",
         candle: "candle 3.6s ease-in-out infinite",
         unlock: "unlock 1.4s cubic-bezier(.2,.8,.2,1) both",

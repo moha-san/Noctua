@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { useChessGame } from "@/hooks/useChessGame";
 import { useStockfish } from "@/hooks/useStockfish";
 import { Board } from "@/components/board/Board";
+import { PromotionPicker } from "@/components/board/PromotionPicker";
 
 type Goal = "mate" | "promote";
 type Lesson = { id: string; title: string; level: "Fácil" | "Medio" | "Difícil"; fen: string; goal: Goal; par: number; tips: string[] };
@@ -119,6 +120,7 @@ export function EndgameTrainer() {
             squareStyles={chess.squareStyles}
             canDragPiece={({ piece }) => !result && piece.pieceType.startsWith("w")}
           />
+          {chess.promotion && <PromotionPicker color={chess.promotion.color} onPick={chess.completePromotion} />}
           {result && (
             <div className="absolute inset-x-6 top-1/2 -translate-y-1/2">
               <div className="card mx-auto max-w-sm p-7 text-center shadow-2xl">

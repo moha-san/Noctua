@@ -81,7 +81,7 @@ export function HistoryPage() {
               <History className="h-10 w-10 text-ink-4" strokeWidth={1.2} />
               <p className="font-serif text-[20px] text-ink">No hay partidas con este filtro</p>
               <p className="max-w-sm text-[14px] text-ink-3">Las partidas que juegues contra el ordenador o en torneos aparecerán aquí automáticamente.</p>
-              <Link href="/play" className="btn-primary mt-2 px-6 py-2.5"><Swords className="h-4 w-4" /> Jugar ahora</Link>
+              <Link href="/online" className="btn-primary mt-2 px-6 py-2.5"><Swords className="h-4 w-4" /> Jugar ahora</Link>
             </div>
           )}
         </div>

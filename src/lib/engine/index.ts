@@ -8,6 +8,8 @@ export * from "./types";
 export async function createEngine(): Promise<ChessEngine> {
   if (typeof window !== "undefined" && typeof Worker !== "undefined" && typeof WebAssembly !== "undefined") {
     // La versión HTML de un solo archivo define window.__createStockfishWorker para cargarlo desde un CDN
+    // En la versión de un archivo, el motor va al final del HTML: esperamos a que esté leído
+    if (document.readyState === "loading") await new Promise((r) => document.addEventListener("DOMContentLoaded", r, { once: true }));
     const factory = (window as unknown as { __createStockfishWorker?: () => Worker }).__createStockfishWorker;
     const sf = new StockfishEngine(factory);
     try {

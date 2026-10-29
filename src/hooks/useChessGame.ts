@@ -14,6 +14,8 @@ export function useChessGame(initialFen?: string) {
   const [fen, setFen] = useState(gameRef.current.fen());
   const [lastMove, setLastMove] = useState<Move | null>(null);
   const [selected, setSelected] = useState<Square | null>(null);
+  /** Coronación pendiente: el jugador elige la pieza antes de mover */
+  const [promotion, setPromotion] = useState<{ from: string; to: string; color: "w" | "b" } | null>(null);
 
   const sync = useCallback(() => setFen(gameRef.current.fen()), []);
 
@@ -36,13 +38,34 @@ export function useChessGame(initialFen?: string) {
     [sync],
   );
 
+  /** Si la jugada es una coronación, la deja pendiente para que el jugador elija pieza. */
+  const askPromotion = useCallback((from: string, to: string) => {
+    const g = gameRef.current;
+    const isPromo = g.moves({ square: from as Square, verbose: true }).some((m) => m.to === to && m.promotion);
+    if (isPromo) {
+      setPromotion({ from, to, color: g.turn() });
+      setSelected(null);
+    }
+    return isPromo;
+  }, []);
+
+  const completePromotion = useCallback(
+    (piece: "q" | "r" | "b" | "n" | null) => {
+      const p = promotion;
+      setPromotion(null);
+      if (p && piece) makeMove({ from: p.from, to: p.to, promotion: piece });
+    },
+    [promotion, makeMove],
+  );
+
   /** Handler listo para `onPieceDrop` de react-chessboard v5. */
   const onPieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }) => {
       if (!targetSquare) return false;
+      if (askPromotion(sourceSquare, targetSquare)) return false;
       return makeMove({ from: sourceSquare, to: targetSquare }) !== null;
     },
-    [makeMove],
+    [makeMove, askPromotion],
   );
 
   /** Mover con clic: primer clic selecciona, segundo clic mueve. */
@@ -50,12 +73,13 @@ export function useChessGame(initialFen?: string) {
     ({ square }: { square: string }) => {
       const g = gameRef.current;
       if (selected) {
+        if (askPromotion(selected, square)) return;
         if (makeMove({ from: selected, to: square })) return;
       }
       const piece = g.get(square as Square);
       setSelected(piece && piece.color === g.turn() ? (square as Square) : null);
     },
-    [selected, makeMove],
+    [selected, makeMove, askPromotion],
   );
 
   const undo = useCallback(() => {
@@ -68,6 +92,7 @@ export function useChessGame(initialFen?: string) {
   const reset = useCallback(
     (newFen?: string) => {
       gameRef.current = new Chess(newFen);
+      setPromotion(null);
       setLastMove(null);
       setSelected(null);
       sync();
@@ -135,6 +160,8 @@ export function useChessGame(initialFen?: string) {
     makeMove,
     onPieceDrop,
     onSquareClick,
+    promotion,
+    completePromotion,
     undo,
     reset,
     load,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { MobileNav } from "./MobileNav";
 import { Sidebar } from "./Sidebar";
@@ -10,6 +11,13 @@ import { Footer } from "./Footer";
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
+
+  // Al cambiar de página: arriba del todo y menú móvil cerrado
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+    setMobileOpen(false);
+  }, [pathname]);
 
   // Recordar el estado del sidebar
   useEffect(() => {
@@ -31,7 +39,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar collapsed={collapsed} onToggleCollapse={toggle} mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />
       <div className={cn("transition-[padding] duration-300", collapsed ? "lg:pl-[96px]" : "lg:pl-[288px]")}>
         <Topbar onOpenMobile={() => setMobileOpen(true)} />
-        <main id="contenido" tabIndex={-1} className="outline-none mx-auto w-full max-w-[1440px] px-5 pb-32 pt-8 sm:px-8 lg:px-12 lg:pb-10 lg:pt-12">{children}</main>
+        <main id="contenido" tabIndex={-1} className="outline-none mx-auto w-full max-w-[1440px] px-5 pb-32 pt-8 sm:px-8 lg:px-12 lg:pb-10 lg:pt-12">
+          <div key={pathname} className="motion-safe:animate-page">{children}</div>
+        </main>
         <Footer />
       </div>
       <MobileNav onOpenIndex={() => setMobileOpen(true)} />

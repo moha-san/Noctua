@@ -14,6 +14,7 @@ import { loadSettings, useSettings } from "@/lib/settings";
 import { useChessGame } from "@/hooks/useChessGame";
 import { useStockfish } from "@/hooks/useStockfish";
 import { Board } from "@/components/board/Board";
+import { PromotionPicker } from "@/components/board/PromotionPicker";
 import { EvalBar } from "@/components/board/EvalBar";
 
 type Color = "w" | "b";
@@ -387,6 +388,7 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
             squareStyles={chess.squareStyles}
             canDragPiece={({ piece }) => !over && piece.pieceType.startsWith(userColor)}
           />
+          {chess.promotion && <PromotionPicker color={chess.promotion.color} onPick={chess.completePromotion} />}
           <Seat color={userColor} />
 
           {over && (

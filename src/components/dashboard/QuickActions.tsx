@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { ArrowRight, GraduationCap, Microscope, Puzzle, Swords } from "lucide-react";
+import { ArrowRight, Bot, GraduationCap, Microscope, Puzzle, Swords } from "lucide-react";
 
 const ACTIONS = [
-  { href: "/play", label: "Jugar una partida", desc: "Ocho niveles, con o sin reloj", icon: Swords },
+  { href: "/online", label: "Jugar online", desc: "Rivales de tu nivel, en directo", icon: Swords },
+  { href: "/play", label: "Jugar con bots", desc: "Ocho niveles, con o sin reloj", icon: Bot },
   { href: "/review", label: "Analizar una partida", desc: "Informe de precisión gratis", icon: Microscope },
   { href: "/puzzles", label: "Resolver problemas", desc: "Por tema o contrarreloj", icon: Puzzle },
   { href: "/learn", label: "Aprender", desc: "Aperturas y finales básicos", icon: GraduationCap },
@@ -10,12 +11,12 @@ const ACTIONS = [
 
 export function QuickActions() {
   return (
-    <div className="card grid divide-y divide-line sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
+    <div className="card grid gap-px overflow-hidden bg-line sm:grid-cols-2 xl:grid-cols-5">
       {ACTIONS.map(({ href, label, desc, icon: Icon }, i) => (
         <Link
           key={label}
           href={href}
-          className={`group flex items-start gap-4 px-6 py-6 transition-colors hover:bg-ink/[0.025] sm:px-7 ${i % 2 === 1 ? "sm:border-l sm:border-line lg:border-l-0" : ""} ${i > 1 ? "sm:border-t sm:border-line lg:border-t-0" : ""}`}
+          className={`group flex items-start gap-4 bg-paper px-6 py-6 transition-colors hover:bg-paper-2 sm:px-7 ${i === 4 ? "sm:col-span-2 xl:col-span-1" : ""}`}
         >
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-gold/40 bg-paper-2 text-wood transition-colors group-hover:border-gold group-hover:bg-gold group-hover:text-on-gold dark:text-gold">
             <Icon className="h-[18px] w-[18px]" strokeWidth={1.6} />
