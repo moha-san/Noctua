@@ -815,7 +815,7 @@ export function GameView({ id, me, onExit, onGame, inTournament = false }: { id:
     return true;
   };
 
-  const act = async (fn: "game_resign" | "game_draw") => {
+  const act = async (fn: "game_resign" | "game_draw" | "game_abort") => {
     if (!g) return;
     try {
       apply(await rpc<OnlineGame>(fn, { p_game: g.id }));
@@ -901,9 +901,9 @@ export function GameView({ id, me, onExit, onGame, inTournament = false }: { id:
           {finished && (
             <div className="absolute inset-0 grid place-items-center rounded-[4px] bg-black/45 p-6 backdrop-blur-[2px]">
               <div className="card w-full max-w-sm p-7 text-center">
-                <p className="font-serif text-[30px] text-ink">{g.disputed_by ? "Partida anulada" : spectator ? (g.result === "1/2-1/2" ? "Tablas" : `Ganan las ${g.result === "1-0" ? "blancas" : "negras"}`) : myScore === 1 ? "Has ganado" : myScore === 0.5 ? "Tablas" : "Has perdido"}</p>
+                <p className="font-serif text-[30px] text-ink">{g.disputed_by ? "Partida anulada" : !g.result ? "Partida cancelada" : spectator ? (g.result === "1/2-1/2" ? "Tablas" : `Ganan las ${g.result === "1-0" ? "blancas" : "negras"}`) : myScore === 1 ? "Has ganado" : myScore === 0.5 ? "Tablas" : "Has perdido"}</p>
                 <p className="mt-1 text-[14px] text-ink-3">{g.reason}</p>
-                {!spectator && myChange != null && <p className={cn("mt-3 font-serif text-[22px] tabular-nums", myChange > 0 ? "text-good" : myChange < 0 ? "text-bad" : "text-ink-3")}>{myChange > 0 ? "+" : ""}{myChange} Elo</p>}
+                {!spectator && myChange != null && !!g.result && <p className={cn("mt-3 font-serif text-[22px] tabular-nums", myChange > 0 ? "text-good" : myChange < 0 ? "text-bad" : "text-ink-3")}>{myChange > 0 ? "+" : ""}{myChange} Elo</p>}
                 <div className="mt-6 grid gap-2">
                   <Link href="/review?game=custom" onClick={() => saveReviewPgn(pgn())} className="btn-primary py-3"><Microscope className="h-4 w-4" /> Analizar partida</Link>
                   {!spectator && !inTournament && onGame && !g.disputed_by && <Rematch game={g.id} opponent={names[opp]?.username ?? "Tu rival"} onGame={onGame} />}
@@ -944,7 +944,9 @@ export function GameView({ id, me, onExit, onGame, inTournament = false }: { id:
           {!spectator && !finished && (
             <div className="mt-5 grid grid-cols-2 gap-2">
               <button className="btn-ghost text-sm" disabled={iOffered || !!drawOffered} onClick={() => act("game_draw")}><Handshake className="h-4 w-4" /> {iOffered ? "Tablas ofrecidas" : "Ofrecer tablas"}</button>
-              {confirmResign ? (
+              {g.moves.length < 2 && !inTournament ? (
+                <button className="btn-ghost text-sm" onClick={() => act("game_abort")}><X className="h-4 w-4" /> Cancelar partida</button>
+              ) : confirmResign ? (
                 <button className="btn-ghost text-sm text-bad" onClick={() => act("game_resign")}>¿Seguro? Rendirse</button>
               ) : (
                 <button className="btn-ghost text-sm" onClick={() => setConfirmResign(true)}><Flag className="h-4 w-4" /> Rendirse</button>

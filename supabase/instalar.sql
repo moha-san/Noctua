@@ -489,6 +489,19 @@ begin
   return g;
 end $$;
 
+-- Cancelar: antes de que cada jugador haga su primera jugada, sin cambios de Elo
+create or replace function public.game_abort(p_game uuid) returns public.games
+language plpgsql security definer set search_path = public, private as $$
+declare g public.games;
+begin
+  select * into g from public.games where id = p_game for update;
+  if g.status <> 'playing' or auth.uid() not in (g.white, g.black) then raise exception 'No puedes cancelar esta partida'; end if;
+  if coalesce(array_length(g.moves, 1), 0) >= 2 then raise exception 'Ya no se puede cancelar: ríndete u ofrece tablas'; end if;
+  if g.tournament is not null then raise exception 'En los torneos no se pueden cancelar partidas'; end if;
+  update public.games set status = 'finished', result = null, reason = 'Partida cancelada', rating_change = 0, updated_at = now() where id = g.id returning * into g;
+  return g;
+end $$;
+
 create or replace function public.game_resign(p_game uuid) returns public.games
 language plpgsql security definer set search_path = public, private as $$
 declare g public.games;
@@ -769,13 +782,13 @@ begin
       from public.games where status = 'finished' and p.id in (white, black)),
     'history', coalesce((select jsonb_agg(r order by r.at) from (
         select updated_at as at, case when white = p.id then white_rating + coalesce(rating_change, 0) else black_rating - coalesce(rating_change, 0) end as rating
-        from public.games where status = 'finished' and p.id in (white, black) order by updated_at desc limit 40) r), '[]'::jsonb),
+        from public.games where status = 'finished' and result is not null and p.id in (white, black) order by updated_at desc limit 40) r), '[]'::jsonb),
     'recent', coalesce((select jsonb_agg(r order by r.at desc) from (
         select g.id, g.updated_at as at, g.time_control, g.result, g.reason, g.moves, g.start_fen, g.white = p.id as white,
           case when g.white = p.id then g.rating_change else -g.rating_change end as change,
           o.username as opponent, case when g.white = p.id then g.black_rating else g.white_rating end as opponent_rating
         from public.games g join public.profiles o on o.id = case when g.white = p.id then g.black else g.white end
-        where g.status = 'finished' and p.id in (g.white, g.black) order by g.updated_at desc limit 10) r), '[]'::jsonb),
+        where g.status = 'finished' and g.result is not null and p.id in (g.white, g.black) order by g.updated_at desc limit 10) r), '[]'::jsonb),
     'medals', coalesce((select jsonb_agg(m order by m.at desc) from (
         select t.name, t.starts_at as at, x.rank, x.points from public.tournaments t
         join lateral (select tp.user_id, tp.points, rank() over (order by tp.points desc, tp.wins desc) as rank
@@ -1081,7 +1094,7 @@ grant execute on function public.adm_status, public.adm_start, public.adm_puzzle
   public.update_bio, public.sync_achievements, public.profile_public,
   public.puzzle_submit_rush, public.puzzle_submit_daily, public.puzzle_board,
   public.presence_ping, public.friend_request, public.friend_respond, public.friend_remove, public.friend_list, public.friend_challenge, public.game_chat,
-  public.game_focus_lost, public.game_dispute, public.fair_report, public.rematch_offer, public.rematch_status to authenticated;
+  public.game_focus_lost, public.game_dispute, public.fair_report, public.rematch_offer, public.rematch_status, public.game_abort to authenticated;
 grant execute on function public.tour_list, public.profile_public, public.puzzle_board to anon;
 grant execute on function public.adm_status to anon;
 
