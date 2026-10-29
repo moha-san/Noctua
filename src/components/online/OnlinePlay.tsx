@@ -696,9 +696,6 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
   const t = g ? clocks(g, now) : { w: 0, b: 0 };
   const myTurn = !spectator && !!g && g.status === "playing" && !pending && view === null && chess.turn() === color;
   const total = g?.moves.length ?? 0;
-  /** Premovimiento: jugada preparada durante el turno del rival */
-  const [premove, setPremove] = useState<{ from: string; to: string } | null>(null);
-  const canPremove = !spectator && !!g && g.status === "playing" && view === null && !pending && chess.turn() !== color;
   const viewFen = useMemo(() => {
     if (view === null || !g) return null;
     const c = new Chess(g?.start_fen ?? undefined);
@@ -770,16 +767,6 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
     setConfirmResign(false);
   };
 
-  // Cuando llega tu turno, se juega el premovimiento si es legal
-  useEffect(() => {
-    if (!myTurn || !premove) return;
-    const pm = premove;
-    setPremove(null);
-    const legal = chess.moves({ square: pm.from as Square, verbose: true }).some((m) => m.to === pm.to);
-    if (legal) void send(pm.from, pm.to, "q");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myTurn]);
-
   // Aviso sonoro al quedar 10 segundos
   const myMs = color === "w" ? t.w : t.b;
   const warned = useRef(false);
@@ -805,14 +792,6 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
   if (last) {
     styles[last.from] = { background: "rgba(196,160,72,0.38)" };
     styles[last.to] = { background: "rgba(196,160,72,0.5)" };
-  }
-  if (premove) {
-    styles[premove.from] = { background: "rgba(70,110,160,0.45)" };
-    styles[premove.to] = { background: "rgba(70,110,160,0.6)" };
-  }
-  if (selected && !canPremove) {
-    styles[selected] = { background: "rgba(120,150,90,0.5)" };
-    for (const mv of chess.moves({ square: selected as Square, verbose: true })) styles[mv.to] = { background: "radial-gradient(circle, rgba(0,0,0,0.25) 22%, transparent 24%)" };
   }
 
   const myScore = g.result === "1/2-1/2" ? 0.5 : g.result === (color === "w" ? "1-0" : "0-1") ? 1 : 0;
@@ -844,38 +823,9 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
             id="online"
             position={viewFen ?? chess.fen()}
             boardOrientation={color === "w" ? "white" : "black"}
-            onPieceDrop={({ sourceSquare, targetSquare }) => {
-              if (!targetSquare || sourceSquare === targetSquare) return false;
-              if (canPremove) {
-                setPremove({ from: sourceSquare, to: targetSquare });
-                playSound("premove");
-                return false;
-              }
-              void send(sourceSquare, targetSquare);
-              return true;
-            }}
-            onSquareClick={({ square }) => {
-              if (canPremove) {
-                const p = chess.get(square as Square);
-                if (selected && selected !== square) {
-                  setPremove({ from: selected, to: square });
-                  playSound("premove");
-                  setSelected(null);
-                } else {
-                  setPremove(null);
-                  setSelected(p && p.color === color ? square : null);
-                }
-                return;
-              }
-              if (!myTurn) return;
-              if (selected && selected !== square) {
-                const ok = chess.moves({ square: selected as Square, verbose: true }).some((m) => m.to === square);
-                if (ok) return void send(selected, square);
-              }
-              const p = chess.get(square as Square);
-              setSelected(p && p.color === color ? square : null);
-            }}
-            canDragPiece={({ piece }) => (myTurn || canPremove) && piece.pieceType.startsWith(color)}
+            player={color}
+            interactive={!spectator && g.status === "playing" && view === null}
+            onMove={(from, to, promotion) => void send(from, to, promotion)}
             squareStyles={styles}
           />
           {promo && myTurn && (

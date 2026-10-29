@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import type { Player, Result } from "@/lib/tournament/swiss";
 import { useChessGame } from "@/hooks/useChessGame";
 import { useStockfish } from "@/hooks/useStockfish";
-import { Board } from "@/components/board/Board";
+import { Board, lastMoveStyles } from "@/components/board/Board";
 import { PromotionPicker } from "@/components/board/PromotionPicker";
 
 const START_MS = 10 * 60 * 1000;
@@ -123,10 +123,10 @@ export function TournamentGame({ round, opponent, userColor, userName, onFinish 
         id={`tournament-${round}`}
         position={chess.fen}
         boardOrientation={userColor === "w" ? "white" : "black"}
-        onPieceDrop={(a) => !over && chess.turn === userColor && chess.onPieceDrop(a)}
-        onSquareClick={(a) => !over && chess.turn === userColor && chess.onSquareClick(a)}
-        squareStyles={chess.squareStyles}
-        canDragPiece={({ piece }) => !over && piece.pieceType.startsWith(userColor)}
+        player={userColor}
+        interactive={!over}
+        onMove={(from, to, promotion) => (promotion ? chess.makeMove({ from, to, promotion }) : chess.onPieceDrop({ sourceSquare: from, targetSquare: to }))}
+        squareStyles={lastMoveStyles(chess.lastMove)}
       />
       {chess.promotion && <PromotionPicker color={chess.promotion.color} onPick={chess.completePromotion} />}
       <Seat color={userColor} />

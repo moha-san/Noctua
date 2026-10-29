@@ -5,7 +5,7 @@ import { Check, ChevronRight, RotateCcw, Trophy, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useChessGame } from "@/hooks/useChessGame";
 import { useStockfish } from "@/hooks/useStockfish";
-import { Board } from "@/components/board/Board";
+import { Board, lastMoveStyles } from "@/components/board/Board";
 import { PromotionPicker } from "@/components/board/PromotionPicker";
 
 type Goal = "mate" | "promote";
@@ -115,10 +115,11 @@ export function EndgameTrainer() {
           <Board
             id="endgame"
             position={chess.fen}
-            onPieceDrop={(a) => !result && chess.turn === "w" && chess.onPieceDrop(a)}
-            onSquareClick={(a) => !result && chess.turn === "w" && chess.onSquareClick(a)}
-            squareStyles={chess.squareStyles}
-            canDragPiece={({ piece }) => !result && piece.pieceType.startsWith("w")}
+            player={"w"}
+            interactive={!result}
+            premoves={false}
+            onMove={(from, to, promotion) => (promotion ? chess.makeMove({ from, to, promotion }) : chess.onPieceDrop({ sourceSquare: from, targetSquare: to }))}
+            squareStyles={lastMoveStyles(chess.lastMove)}
           />
           {chess.promotion && <PromotionPicker color={chess.promotion.color} onPick={chess.completePromotion} />}
           {result && (

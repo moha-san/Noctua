@@ -14,7 +14,7 @@ import { playSound, setSoundEnabled, soundEnabled } from "@/lib/sound";
 import { loadSettings, useSettings } from "@/lib/settings";
 import { useChessGame } from "@/hooks/useChessGame";
 import { useStockfish } from "@/hooks/useStockfish";
-import { Board } from "@/components/board/Board";
+import { Board, lastMoveStyles } from "@/components/board/Board";
 import { PromotionPicker } from "@/components/board/PromotionPicker";
 import { EvalBar } from "@/components/board/EvalBar";
 
@@ -429,10 +429,10 @@ function Game({ initial, onExit, onRematch }: { initial: Live; onExit: () => voi
             position={chess.fen}
             boardOrientation={(userColor === "w") !== flipped ? "white" : "black"}
             arrows={hint && hint.fen === chess.fen ? [{ startSquare: hint.from, endSquare: hint.to, color: "rgba(79, 122, 74, 0.85)" }] : []}
-            onPieceDrop={(a) => !over && chess.turn === userColor && chess.onPieceDrop(a)}
-            onSquareClick={(a) => !over && chess.turn === userColor && chess.onSquareClick(a)}
-            squareStyles={chess.squareStyles}
-            canDragPiece={({ piece }) => !over && piece.pieceType.startsWith(userColor)}
+            player={userColor}
+            interactive={!over}
+            onMove={(from, to, promotion) => (promotion ? chess.makeMove({ from, to, promotion }) : chess.onPieceDrop({ sourceSquare: from, targetSquare: to }))}
+            squareStyles={lastMoveStyles(chess.lastMove)}
           />
           {chess.promotion && <PromotionPicker color={chess.promotion.color} onPick={chess.completePromotion} />}
           <Seat color={userColor} />
