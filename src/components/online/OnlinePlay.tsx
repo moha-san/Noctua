@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Chess, type Square } from "chess.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Flag, Handshake, Loader2, Microscope, Search, Wifi, X } from "lucide-react";
+import { Bot, Check, Copy, Eye, Flag, UserPlus, Handshake, Loader2, Microscope, Search, Wifi, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { backendConfigured, rpc, sb, type Profile } from "@/lib/backend/client";
 import { refreshProfile, useAuth } from "@/hooks/useAuth";
@@ -44,8 +44,16 @@ const RITMOS = [
 ];
 
 /** Partidas online contra otras personas, con emparejamiento por Elo. */
-export function OnlinePlay() {
+export function OnlinePlay({ code: codeProp }: { code?: string | null } = {}) {
   const { user, profile, loading } = useAuth();
+  // Código de reto que llega en el enlace (#online-CODIGO o /online?id=CODIGO)
+  const [inviteCode, setInviteCode] = useState<string | null>(codeProp ?? null);
+  useEffect(() => {
+    if (codeProp) return;
+    const q = new URLSearchParams(window.location.search).get("id");
+    if (q) setInviteCode(q);
+  }, [codeProp]);
+  const [watchId, setWatchId] = useState<string | null>(null);
   const [tc, setTcState] = useState("5+3");
   const setTc = (v: string) => {
     setTcState(v);
@@ -123,18 +131,22 @@ export function OnlinePlay() {
     return (
       <div className="mx-auto max-w-3xl space-y-6">
         <Hero />
+        {inviteCode && <p className="rounded-xl bg-gold/10 px-4 py-3 text-center text-[14px] text-ink ring-1 ring-gold/30">Te han retado a una partida. Entra o crea una cuenta para aceptar el reto.</p>}
         <AuthPanel title="Entra para jugar online" />
         <p className="text-center text-[14px] text-ink-3">¿Prefieres practicar sin cuenta? <Link href="/play" className="text-wood underline underline-offset-4 hover:text-gold dark:text-gold">Juega con bots</Link></p>
       </div>
     );
 
+  if (watchId) return <GameView key={watchId} id={watchId} me={user.id} onExit={() => setWatchId(null)} />;
   if (gameId) return <GameView key={gameId} id={gameId} me={user.id} onExit={(again) => { setGameId(null); refreshProfile(); if (again) { setTc(again); setWaited(0); setSearching(true); } }} />;
 
   return (
     <div className="mx-auto max-w-[1000px] space-y-8">
       <Hero />
       {error && <p className="rounded-xl bg-bad/10 px-4 py-3 text-[14px] text-bad ring-1 ring-bad/30" role="alert">{error}</p>}
+      {inviteCode && <InvitePanel code={inviteCode} onGame={(id) => { setInviteCode(null); setGameId(id); }} onDismiss={() => setInviteCode(null)} />}
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0 space-y-8">
         <div className="card p-7 sm:p-9">
           <p className="label">Ritmo</p>
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -167,6 +179,9 @@ export function OnlinePlay() {
             </button>
           )}
         </div>
+        <ChallengeCard tc={tc} disabled={searching} onGame={(id) => setGameId(id)} />
+        <LiveGames me={user.id} onWatch={setWatchId} />
+        </div>
         <aside className="space-y-6">
           <AuthPanel compact />
           <TopPlayers me={user.id} />
@@ -184,6 +199,214 @@ export function OnlinePlay() {
         </aside>
       </div>
       <RecentOnline me={user.id} />
+    </div>
+  );
+}
+
+/** Enlace para compartir un reto: funciona en la web y en el archivo único. */
+function inviteLink(code: string) {
+  const { origin, pathname, protocol } = window.location;
+  const singleFile = !!document.getElementById("sf-js");
+  if (protocol === "file:") return null;
+  return singleFile ? `${origin}${pathname}#online-${code}` : `${origin}/online?id=${code}`;
+}
+
+/** Retar a un amigo: crea un código y espera a que lo acepte. También acepta códigos. */
+function ChallengeCard({ tc, disabled, onGame }: { tc: string; disabled: boolean; onGame: (id: string) => void }) {
+  const [color, setColor] = useState<"w" | "b" | "random">("random");
+  const [code, setCode] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const onGameRef = useRef(onGame);
+  onGameRef.current = onGame;
+
+  // Esperar a que el amigo acepte
+  useEffect(() => {
+    if (!code) return;
+    let alive = true;
+    const id = setInterval(async () => {
+      const r = await rpc<{ found: boolean; game: string | null }>("challenge_status", { p_code: code }).catch(() => null);
+      if (!alive || !r) return;
+      if (r.game) {
+        playSound("start");
+        onGameRef.current(r.game);
+      } else if (!r.found) {
+        setCode(null);
+        setError("El reto ha caducado. Crea otro.");
+      }
+    }, 2000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [code]);
+
+  const create = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await rpc<{ code: string }>("challenge_create", { p_tc: tc, p_color: color });
+      setCode(r.code);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setBusy(false);
+  };
+  const cancel = async () => {
+    setCode(null);
+    await rpc("challenge_cancel").catch(() => {});
+  };
+  const accept = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await rpc<{ game: string }>("challenge_accept", { p_code: typed });
+      onGame(r.game);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setBusy(false);
+  };
+  const link = code ? inviteLink(code) : null;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(link ? `Te reto a una partida de ajedrez (${tc}) en Athenaeum: ${link}  · Código: ${code}` : code!);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {}
+  };
+
+  return (
+    <div className="card p-7 sm:p-9">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-serif text-[22px] text-ink">Retar a un amigo</p>
+          <p className="text-[14px] text-ink-3">Partida de {tc} con un código. Cuenta para el Elo online.</p>
+        </div>
+        <UserPlus className="h-6 w-6 text-gold" strokeWidth={1.5} />
+      </div>
+
+      {code ? (
+        <div className="mt-6 rounded-2xl bg-paper-2 p-5 ring-1 ring-line">
+          <p className="label">Pásale este código a tu amigo</p>
+          <p className="mt-2 select-all font-serif text-[40px] tracking-[0.25em] text-ink">{code}</p>
+          {link && <p className="mt-1 break-all text-[13px] text-ink-3">{link}</p>}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button className="btn-primary" onClick={copy}>{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />} {copied ? "Copiado" : link ? "Copiar invitación" : "Copiar código"}</button>
+            <button className="btn-ghost" onClick={cancel}><X className="h-4 w-4" /> Cancelar</button>
+            <span className="flex items-center gap-2 text-[13px] text-ink-3"><Loader2 className="h-4 w-4 animate-spin text-gold" /> Esperando a que lo acepte…</span>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-6 grid gap-6 sm:grid-cols-2">
+          <div>
+            <p className="label mb-2">Tu color</p>
+            <div className="flex gap-2">
+              {([["w", "Blancas"], ["random", "Al azar"], ["b", "Negras"]] as const).map(([c, l]) => (
+                <button key={c} onClick={() => setColor(c)} className={cn("flex-1 rounded-xl border px-2 py-2 text-[13px] transition", color === c ? "border-gold bg-gold/10 text-ink" : "border-line text-ink-3 hover:border-ink-4")}>{l}</button>
+              ))}
+            </div>
+            <button className="btn-primary mt-3 w-full" disabled={busy || disabled} onClick={create}><UserPlus className="h-4 w-4" /> Crear reto</button>
+          </div>
+          <div>
+            <p className="label mb-2">¿Te han dado un código?</p>
+            <input
+              value={typed}
+              onChange={(e) => setTyped(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+              placeholder="ABC234"
+              aria-label="Código del reto"
+              className="w-full rounded-xl border border-line bg-paper px-4 py-2 text-center font-serif text-[20px] tracking-[0.3em] text-ink outline-none focus:border-gold"
+            />
+            <button className="btn-ghost mt-3 w-full" disabled={busy || typed.length !== 6} onClick={accept}>Aceptar reto</button>
+          </div>
+        </div>
+      )}
+      {error && <p className="mt-4 text-[14px] text-bad" role="alert">{error}</p>}
+    </div>
+  );
+}
+
+/** Aviso cuando se entra con un enlace de reto. */
+function InvitePanel({ code, onGame, onDismiss }: { code: string; onGame: (id: string) => void; onDismiss: () => void }) {
+  const [info, setInfo] = useState<{ found: boolean; creator?: string; time_control?: string; mine?: boolean; game?: string | null } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    rpc<typeof info>("challenge_status", { p_code: code }).then(setInfo).catch((e: Error) => setError(e.message));
+  }, [code]);
+  const accept = async () => {
+    try {
+      const r = await rpc<{ game: string }>("challenge_accept", { p_code: code });
+      onGame(r.game);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  if (info?.mine) return null;
+  return (
+    <div className="card flex flex-wrap items-center justify-between gap-4 border-gold/50 p-6">
+      <div>
+        <p className="label text-gold">Reto recibido · {code}</p>
+        <p className="mt-1 font-serif text-[22px] text-ink">
+          {!info ? "Buscando el reto…" : !info.found ? "Este reto ya no existe" : `${info.creator} te reta a una partida de ${info.time_control}`}
+        </p>
+        {error && <p className="mt-1 text-[14px] text-bad">{error}</p>}
+      </div>
+      <div className="flex gap-2">
+        {info?.found && <button className="btn-primary px-6" onClick={accept}>Aceptar</button>}
+        <button className="btn-ghost" onClick={onDismiss}>Ahora no</button>
+      </div>
+    </div>
+  );
+}
+
+/** Partidas que se están jugando ahora mismo, para mirarlas. */
+function LiveGames({ me, onWatch }: { me: string; onWatch: (id: string) => void }) {
+  const [rows, setRows] = useState<(OnlineGame & { wn?: string; bn?: string })[] | null>(null);
+  useEffect(() => {
+    const c = sb();
+    if (!c) return;
+    let alive = true;
+    const load = async () => {
+      const since = new Date(Date.now() - 30 * 60000).toISOString();
+      const { data } = await c.from("games").select("*").eq("status", "playing").gt("updated_at", since).order("updated_at", { ascending: false }).limit(6);
+      const gs = ((data ?? []) as OnlineGame[]).filter((g) => g.white !== me && g.black !== me);
+      const ids = [...new Set(gs.flatMap((g) => [g.white, g.black]))];
+      const { data: ps } = ids.length ? await c.from("profiles").select("id, username").in("id", ids) : { data: [] };
+      const n = Object.fromEntries((ps ?? []).map((p) => [p.id, p.username]));
+      if (alive) setRows(gs.map((g) => ({ ...g, wn: n[g.white], bn: n[g.black] })));
+    };
+    void load();
+    const id = setInterval(load, 10000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [me]);
+  return (
+    <div className="card p-7 sm:p-9">
+      <div className="flex items-center justify-between">
+        <p className="font-serif text-[22px] text-ink">En directo</p>
+        <span className="flex items-center gap-2 text-[12px] uppercase tracking-[0.14em] text-ink-4"><span className="h-2 w-2 rounded-full bg-bad motion-safe:animate-pulse" /> Ahora</span>
+      </div>
+      {!rows ? (
+        <p className="mt-4 text-[14px] text-ink-4">Cargando…</p>
+      ) : rows.length === 0 ? (
+        <p className="mt-4 text-[14px] text-ink-3">Ahora mismo no hay partidas en juego. Cuando alguien juegue, podrás mirarla aquí.</p>
+      ) : (
+        <ul className="mt-4 divide-y divide-line">
+          {rows.map((g) => (
+            <li key={g.id} className="flex items-center gap-4 py-3">
+              <span className="min-w-0 flex-1 truncate text-[15px] text-ink">
+                {g.wn ?? "…"} <span className="text-ink-4">({g.white_rating})</span> <span className="text-ink-4">contra</span> {g.bn ?? "…"} <span className="text-ink-4">({g.black_rating})</span>
+              </span>
+              <span className="text-[13px] tabular-nums text-ink-4">{g.time_control} · {Math.ceil(g.moves.length / 2)} jug.</span>
+              <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => onWatch(g.id)}><Eye className="h-3.5 w-3.5" /> Ver</button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -340,7 +563,8 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: (again: 
     return () => clearInterval(t);
   }, []);
 
-  const color: "w" | "b" = g?.white === me ? "w" : "b";
+  const spectator = !!g && g.white !== me && g.black !== me;
+  const color: "w" | "b" = g?.black === me ? "b" : "w";
   const chess = useMemo(() => {
     const c = new Chess();
     for (const m of g?.moves ?? []) {
@@ -382,11 +606,11 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: (again: 
   }, [finished]);
 
   const t = g ? clocks(g, now) : { w: 0, b: 0 };
-  const myTurn = !!g && g.status === "playing" && !pending && view === null && chess.turn() === color;
+  const myTurn = !spectator && !!g && g.status === "playing" && !pending && view === null && chess.turn() === color;
   const total = g?.moves.length ?? 0;
   /** Premovimiento: jugada preparada durante el turno del rival */
   const [premove, setPremove] = useState<{ from: string; to: string } | null>(null);
-  const canPremove = !!g && g.status === "playing" && view === null && !pending && chess.turn() !== color;
+  const canPremove = !spectator && !!g && g.status === "playing" && view === null && !pending && chess.turn() !== color;
   const viewFen = useMemo(() => {
     if (view === null || !g) return null;
     const c = new Chess();
@@ -407,7 +631,7 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: (again: 
 
   // Si al rival se le acaba el tiempo (o no hace su primera jugada), se reclama la victoria
   useEffect(() => {
-    if (!g || g.status !== "playing") return;
+    if (!g || g.status !== "playing" || spectator) return;
     const oppMs = color === "w" ? t.b : t.w;
     const n = g.moves.length;
     const firstMoveLate = n < 2 && now - new Date(g.last_move_at ?? g.created_at).getTime() > 61000;
@@ -416,7 +640,7 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: (again: 
       claiming.current = now;
       void rpc<OnlineGame>("game_claim", { p_game: g.id }).then(apply).catch(() => {});
     }
-  }, [now, g, t.b, t.w, color, chess, apply]);
+  }, [now, g, t.b, t.w, color, chess, apply, spectator]);
 
   const send = async (from: string, to: string, piece?: PromotionPiece) => {
     if (!g || !myTurn) return false;
@@ -472,7 +696,7 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: (again: 
   const myMs = color === "w" ? t.w : t.b;
   const warned = useRef(false);
   useEffect(() => {
-    if (!g || g.status !== "playing" || g.base_ms < 60000) return;
+    if (!g || spectator || g.status !== "playing" || g.base_ms < 60000) return;
     if (myMs < 10000 && myMs > 0 && !warned.current) {
       warned.current = true;
       playSound("check");
@@ -482,9 +706,10 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: (again: 
   if (!g) return <div className="card p-10 text-center text-ink-4"><Loader2 className="mx-auto h-6 w-6 animate-spin" /> Cargando la partida…</div>;
 
   const opp = color === "w" ? g.black : g.white;
+  const mine = color === "w" ? g.white : g.black;
   const nameOf = (uid: string, fallback: number | null) => ({ name: names[uid]?.username ?? "…", rating: fallback ?? names[uid]?.rating ?? 0 });
   const top = { ...nameOf(opp, color === "w" ? g.black_rating : g.white_rating), ms: color === "w" ? t.b : t.w, active: g.status === "playing" && chess.turn() !== color };
-  const bottom = { ...nameOf(me, color === "w" ? g.white_rating : g.black_rating), ms: color === "w" ? t.w : t.b, active: g.status === "playing" && chess.turn() === color };
+  const bottom = { ...nameOf(mine, color === "w" ? g.white_rating : g.black_rating), ms: color === "w" ? t.w : t.b, active: g.status === "playing" && chess.turn() === color };
 
   const styles: Record<string, React.CSSProperties> = {};
   const hist = chess.history({ verbose: true });
@@ -576,12 +801,12 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: (again: 
           {finished && (
             <div className="absolute inset-0 grid place-items-center rounded-[4px] bg-black/45 p-6 backdrop-blur-[2px]">
               <div className="card w-full max-w-sm p-7 text-center">
-                <p className="font-serif text-[30px] text-ink">{myScore === 1 ? "Has ganado" : myScore === 0.5 ? "Tablas" : "Has perdido"}</p>
+                <p className="font-serif text-[30px] text-ink">{spectator ? (g.result === "1/2-1/2" ? "Tablas" : `Ganan las ${g.result === "1-0" ? "blancas" : "negras"}`) : myScore === 1 ? "Has ganado" : myScore === 0.5 ? "Tablas" : "Has perdido"}</p>
                 <p className="mt-1 text-[14px] text-ink-3">{g.reason}</p>
-                {myChange != null && <p className={cn("mt-3 font-serif text-[22px] tabular-nums", myChange > 0 ? "text-good" : myChange < 0 ? "text-bad" : "text-ink-3")}>{myChange > 0 ? "+" : ""}{myChange} Elo</p>}
+                {!spectator && myChange != null && <p className={cn("mt-3 font-serif text-[22px] tabular-nums", myChange > 0 ? "text-good" : myChange < 0 ? "text-bad" : "text-ink-3")}>{myChange > 0 ? "+" : ""}{myChange} Elo</p>}
                 <div className="mt-6 grid gap-2">
                   <Link href="/review?game=custom" onClick={() => saveReviewPgn(pgn())} className="btn-primary py-3"><Microscope className="h-4 w-4" /> Analizar partida</Link>
-                  <button className="btn-ghost py-3" onClick={() => onExit(g.time_control)}><Search className="h-4 w-4" /> Otra partida de {g.time_control}</button>
+                  {!spectator && <button className="btn-ghost py-3" onClick={() => onExit(g.time_control)}><Search className="h-4 w-4" /> Otra partida de {g.time_control}</button>}
                   <button className="text-[13px] text-ink-3 underline-offset-4 hover:underline" onClick={() => onExit(null)}>Volver al inicio</button>
                 </div>
               </div>
@@ -593,19 +818,25 @@ function GameView({ id, me, onExit }: { id: string; me: string; onExit: (again: 
 
       <aside className="space-y-6">
         <div className="card p-6">
-          <p className="label">{g.time_control} · Online</p>
+          <p className="label">{g.time_control} · {spectator ? "En directo" : "Online"}</p>
           <p className="mt-2 font-serif text-[20px] text-ink">
-            {finished ? "Partida terminada" : pending ? "Enviando jugada…" : myTurn ? "Tu turno" : "Turno del rival"}
+            {finished ? "Partida terminada" : spectator ? `Juegan las ${chess.turn() === "w" ? "blancas" : "negras"}` : pending ? "Enviando jugada…" : myTurn ? "Tu turno" : "Turno del rival"}
           </p>
+          {spectator && !finished && (
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2 text-[13px] text-ink-3"><Eye className="h-4 w-4" /> Estás mirando esta partida</span>
+              <button className="btn-ghost px-4 py-1.5 text-sm" onClick={() => onExit(null)}>Salir</button>
+            </div>
+          )}
           {g.status === "playing" && g.moves.length < 2 && <p className="mt-1 text-[13px] text-ink-3">El reloj empieza tras la primera jugada de cada uno. Hay 60 s para hacerla.</p>}
           {error && <p className="mt-3 text-[14px] text-bad" role="alert">{error}</p>}
-          {drawOffered && !finished && (
+          {!spectator && drawOffered && !finished && (
             <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-gold/10 px-4 py-3 ring-1 ring-gold/30">
               <span className="text-[14px] text-ink">Tu rival ofrece tablas</span>
               <button className="btn-primary px-4 py-1.5 text-sm" onClick={() => act("game_draw")}>Aceptar</button>
             </div>
           )}
-          {!finished && (
+          {!spectator && !finished && (
             <div className="mt-5 grid grid-cols-2 gap-2">
               <button className="btn-ghost text-sm" disabled={iOffered || !!drawOffered} onClick={() => act("game_draw")}><Handshake className="h-4 w-4" /> {iOffered ? "Tablas ofrecidas" : "Ofrecer tablas"}</button>
               {confirmResign ? (

@@ -59,8 +59,8 @@ Plan priorizado para seguir mejorando la plataforma. Cada tanda termina con comp
 - [x] Elegir pieza al coronar (bots, torneos, finales y online).
 - [x] Online: premovimientos, repasar jugadas con flechas, aviso a 10 s, clasificación, últimas partidas y «otra partida» en un clic.
 - [x] Bots con personaje (Lucas, Marta, Diego, Elena, Andrés, Sofía, Víctor y Stockfish), pistas y girar tablero (tecla F).
-- [ ] Retar a un amigo con un enlace (necesita una función nueva en el servidor).
-- [ ] Ver partidas en directo de otros jugadores.
-- [ ] Logros e insignias por hitos (primera victoria, rachas, problemas resueltos).
+- [x] Retar a un amigo con un enlace o un código.
+- [x] Ver partidas en directo de otros jugadores.
+- [x] Logros e insignias (30: partidas, rivales, problemas, aprender y club).
 - [ ] Juegos de piezas alternativos en Ajustes.
 - [ ] Legal completo (después, cuando Moha lo pida).

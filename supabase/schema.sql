@@ -37,6 +37,7 @@ drop policy if exists "perfiles visibles" on public.profiles;
 create policy "perfiles visibles" on public.profiles for select using (true);
 -- Los usuarios no pueden cambiar su Elo ni su estado: solo nombre y país, vía función.
 revoke insert, update, delete on public.profiles from anon, authenticated;
+grant select on public.profiles to anon, authenticated;
 
 create sequence if not exists private.waitlist_seq start 1;
 
@@ -307,9 +308,11 @@ create table if not exists public.games (
   updated_at timestamptz not null default now()
 );
 alter table public.games enable row level security;
+-- Las partidas son públicas (como en cualquier plataforma): así se pueden ver en directo
 drop policy if exists "ver mis partidas" on public.games;
-create policy "ver mis partidas" on public.games for select using (auth.uid() in (white, black) or status = 'finished');
+create policy "ver mis partidas" on public.games for select using (true);
 revoke insert, update, delete on public.games from anon, authenticated;
+grant select on public.games to anon, authenticated;
 
 -- Actualizaciones en tiempo real de las partidas
 do $$ begin
@@ -446,9 +449,78 @@ begin
   return g;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Retos entre amigos: uno crea un código y el otro lo acepta
+-- ---------------------------------------------------------------------
+create table if not exists public.challenges (
+  code text primary key,
+  creator uuid not null references auth.users (id) on delete cascade,
+  time_control text not null,
+  color text not null default 'random' check (color in ('w', 'b', 'random')),
+  game uuid references public.games (id),
+  created_at timestamptz not null default now()
+);
+alter table public.challenges enable row level security;
+revoke all on public.challenges from anon, authenticated;
+
+create or replace function public.challenge_create(p_tc text, p_color text default 'random') returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare c text;
+begin
+  if auth.uid() is null then raise exception 'Necesitas iniciar sesión'; end if;
+  if p_tc not in ('10+0', '5+3', '3+2', '1+0', '15+10') then raise exception 'Ritmo no válido'; end if;
+  if p_color not in ('w', 'b', 'random') then raise exception 'Color no válido'; end if;
+  delete from public.challenges where (creator = auth.uid() and game is null) or created_at < now() - interval '1 day';
+  loop
+    -- Código corto y fácil de dictar (sin 0/O ni 1/I)
+    c := (select string_agg(substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 1 + floor(random() * 32)::int, 1), '') from generate_series(1, 6));
+    exit when not exists (select 1 from public.challenges where code = c);
+  end loop;
+  insert into public.challenges (code, creator, time_control, color) values (c, auth.uid(), p_tc, p_color);
+  return jsonb_build_object('code', c);
+end $$;
+
+-- Estado del reto (para quien lo creó: espera hasta que haya partida)
+create or replace function public.challenge_status(p_code text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare ch public.challenges; who text;
+begin
+  select * into ch from public.challenges where code = upper(trim(p_code));
+  if ch.code is null then return jsonb_build_object('found', false); end if;
+  select username into who from public.profiles where id = ch.creator;
+  return jsonb_build_object('found', true, 'game', ch.game, 'time_control', ch.time_control, 'creator', who, 'mine', ch.creator = auth.uid());
+end $$;
+
+create or replace function public.challenge_accept(p_code text) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare ch public.challenges; g public.games; t record; w uuid; b uuid;
+begin
+  if auth.uid() is null then raise exception 'Necesitas iniciar sesión'; end if;
+  select * into ch from public.challenges where code = upper(trim(p_code)) for update;
+  if ch.code is null then raise exception 'Ese código no existe o ha caducado'; end if;
+  if ch.game is not null then return jsonb_build_object('game', ch.game); end if;
+  if ch.creator = auth.uid() then raise exception 'No puedes aceptar tu propio reto: pásale el código a tu amigo'; end if;
+  if exists (select 1 from public.games where status = 'playing' and auth.uid() in (white, black)) then raise exception 'Ya tienes una partida en juego'; end if;
+  t := private.tc_ms(ch.time_control);
+  if ch.color = 'w' or (ch.color = 'random' and random() < 0.5) then w := ch.creator; b := auth.uid(); else w := auth.uid(); b := ch.creator; end if;
+  insert into public.games (white, black, time_control, base_ms, inc_ms, white_ms, black_ms, white_rating, black_rating)
+    values (w, b, ch.time_control, t.base_ms, t.inc_ms, t.base_ms, t.base_ms,
+      (select rating from public.profiles where id = w), (select rating from public.profiles where id = b))
+    returning * into g;
+  update public.challenges set game = g.id where code = ch.code;
+  delete from public.mm_queue where user_id in (w, b);
+  return jsonb_build_object('game', g.id);
+end $$;
+
+create or replace function public.challenge_cancel() returns void
+language sql security definer set search_path = public as $$
+  delete from public.challenges where creator = auth.uid() and game is null;
+$$;
+
 -- Permisos: la web solo puede llamar a estas funciones
 revoke all on all functions in schema private from anon, authenticated, public;
 revoke execute on all functions in schema public from anon, public;
 grant execute on function public.adm_status, public.adm_start, public.adm_puzzle_move, public.adm_nim_move, public.adm_answer, public.adm_strike,
-  public.update_profile, public.mm_find, public.mm_cancel, public.game_move, public.game_claim, public.game_resign, public.game_draw to authenticated;
+  public.update_profile, public.mm_find, public.mm_cancel, public.game_move, public.game_claim, public.game_resign, public.game_draw,
+  public.challenge_create, public.challenge_status, public.challenge_accept, public.challenge_cancel to authenticated;
 grant execute on function public.adm_status to anon;

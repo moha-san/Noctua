@@ -1,4 +1,4 @@
-import { BarChart3, Info, ShieldCheck, GraduationCap, History, Settings, Crown, Dices, Home, Microscope, Puzzle, Swords, Trophy, Users, Wifi, Bot, type LucideIcon } from "lucide-react";
+import { BarChart3, Info, ShieldCheck, GraduationCap, History, Settings, Crown, Dices, Home, Microscope, Puzzle, Swords, Trophy, Users, Wifi, Bot, Medal, type LucideIcon } from "lucide-react";
 
 export type NavItem = {
   href: string;
@@ -22,6 +22,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/play", label: "Jugar con bots", short: "Bots", group: "Jugar", icon: Bot, keywords: "partida stockfish bot motor ordenador niveles" },
   { href: "/tournaments", label: "Torneos", short: "Torneos", group: "Jugar", icon: Trophy, keywords: "suizo copa arena", note: "En vivo", mobile: true },
   { href: "/history", label: "Mis partidas", short: "Partidas", group: "Jugar", icon: History, keywords: "historial partidas jugadas resultados" },
+  { href: "/achievements", label: "Logros", short: "Logros", group: "Jugar", icon: Medal, keywords: "logros insignias medallas trofeos retos" },
   { href: "/review", label: "Análisis", short: "Análisis", group: "Entrenar", icon: Microscope, keywords: "revisión pgn precisión", note: "Gratis" },
   { href: "/puzzles", label: "Problemas", short: "Problemas", group: "Entrenar", icon: Puzzle, keywords: "tácticas ejercicios mate" },
   { href: "/learn", label: "Aprender", short: "Aprender", group: "Entrenar", icon: GraduationCap, keywords: "aperturas finales lecciones explorador eco teoría" },
