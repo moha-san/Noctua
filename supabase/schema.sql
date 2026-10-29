@@ -1037,6 +1037,40 @@ from per_game pg join public.profiles p on p.id = pg.user_id left join timing tm
 group by p.id, p.username, p.rating, p.banned, tm.avg_ms, tm.sd_ms
 order by sospechoso desc, coincidencia_motor desc;
 
+-- ---------------------------------------------------------------------
+-- Revancha: al terminar, cualquiera de los dos la ofrece; si el otro también la pide, empieza.
+-- Los colores se cambian respecto a la partida anterior.
+-- ---------------------------------------------------------------------
+alter table public.challenges add column if not exists rematch_of uuid references public.games (id) on delete cascade;
+
+create or replace function public.rematch_offer(p_game uuid) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare g public.games; ch public.challenges; opp uuid; r jsonb;
+begin
+  select * into g from public.games where id = p_game;
+  if g.id is null or auth.uid() not in (g.white, g.black) then raise exception 'No jugaste esta partida'; end if;
+  if g.status <> 'finished' then raise exception 'La partida aún no ha terminado'; end if;
+  if g.tournament is not null then raise exception 'En los torneos te empareja el torneo'; end if;
+  opp := case when g.white = auth.uid() then g.black else g.white end;
+  -- Si el rival ya la ofreció, se acepta
+  select * into ch from public.challenges where rematch_of = p_game and creator = opp order by created_at desc limit 1;
+  if ch.code is not null then return public.challenge_accept(ch.code); end if;
+  r := public.challenge_create(g.time_control, case when g.white = auth.uid() then 'b' else 'w' end, g.variant);
+  update public.challenges set target = opp, rematch_of = p_game where code = r ->> 'code';
+  return r;
+end $$;
+
+create or replace function public.rematch_status(p_game uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare g public.games; ch public.challenges;
+begin
+  select * into g from public.games where id = p_game;
+  if g.id is null or auth.uid() not in (g.white, g.black) then return jsonb_build_object('offer', null); end if;
+  select * into ch from public.challenges where rematch_of = p_game order by (game is not null) desc, created_at desc limit 1;
+  if ch.code is null then return jsonb_build_object('offer', null); end if;
+  return jsonb_build_object('offer', case when ch.creator = auth.uid() then 'me' else 'opp' end, 'code', ch.code, 'game', ch.game);
+end $$;
+
 -- Permisos: la web solo puede llamar a estas funciones
 revoke all on all functions in schema private from anon, authenticated, public;
 revoke execute on all functions in schema public from anon, public;
@@ -1047,6 +1081,6 @@ grant execute on function public.adm_status, public.adm_start, public.adm_puzzle
   public.update_bio, public.sync_achievements, public.profile_public,
   public.puzzle_submit_rush, public.puzzle_submit_daily, public.puzzle_board,
   public.presence_ping, public.friend_request, public.friend_respond, public.friend_remove, public.friend_list, public.friend_challenge, public.game_chat,
-  public.game_focus_lost, public.game_dispute, public.fair_report to authenticated;
+  public.game_focus_lost, public.game_dispute, public.fair_report, public.rematch_offer, public.rematch_status to authenticated;
 grant execute on function public.tour_list, public.profile_public, public.puzzle_board to anon;
 grant execute on function public.adm_status to anon;

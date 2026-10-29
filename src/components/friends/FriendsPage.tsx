@@ -79,7 +79,7 @@ export function FriendsPage() {
         <AuthPanel />
       </div>
     );
-  if (game) return <GameView key={game} id={game} me={user.id} onExit={() => { setGame(null); load(); }} />;
+  if (game) return <GameView key={game} id={game} me={user.id} onGame={setGame} onExit={() => { setGame(null); load(); }} />;
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -51,6 +51,60 @@ const RITMOS = [
   { id: "15+10", label: "15 + 10", kind: "Rápida" },
 ];
 
+/** Revancha con el mismo rival (colores cambiados). Si los dos la piden, empieza sola. */
+function Rematch({ game, opponent, onGame }: { game: string; opponent: string; onGame: (id: string) => void }) {
+  const [st, setSt] = useState<{ offer: "me" | "opp" | null; game?: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const onGameRef = useRef(onGame);
+  onGameRef.current = onGame;
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      const r = await rpc<{ offer: "me" | "opp" | null; game?: string | null }>("rematch_status", { p_game: game }).catch(() => null);
+      if (!alive || !r) return;
+      setSt(r);
+      if (r.game) {
+        playSound("start");
+        onGameRef.current(r.game);
+      }
+    };
+    void tick();
+    const t = setInterval(tick, 2000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [game]);
+  const offer = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await rpc<{ code?: string; game?: string }>("rematch_offer", { p_game: game });
+      if (r.game) onGame(r.game);
+      else setSt({ offer: "me" });
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setBusy(false);
+  };
+  if (st?.offer === "me")
+    return (
+      <div className="flex items-center justify-center gap-2 rounded-xl bg-paper-2 px-3 py-3 text-[14px] text-ink-2 ring-1 ring-line">
+        <Loader2 className="h-4 w-4 animate-spin text-gold" /> Revancha ofrecida a {opponent}…
+        <button className="ml-1 text-[13px] text-ink-4 underline underline-offset-4 hover:text-ink" onClick={() => { void rpc("challenge_cancel").catch(() => {}); setSt({ offer: null }); }}>Cancelar</button>
+      </div>
+    );
+  return (
+    <>
+      <button className={cn("py-3", st?.offer === "opp" ? "btn-primary motion-safe:animate-pulse" : "btn-ghost")} disabled={busy} onClick={offer}>
+        <RefreshCw className="h-4 w-4" /> {st?.offer === "opp" ? `${opponent} quiere la revancha · Aceptar` : "Revancha"}
+      </button>
+      {err && <p className="text-[13px] text-bad">{err}</p>}
+    </>
+  );
+}
+
 /** Reloj: días y horas en correspondencia, minutos y segundos en el resto. */
 function fmtClock(ms: number) {
   if (ms < 3600000) return fmtShort(ms);
@@ -165,7 +219,7 @@ export function OnlinePlay({ code: codeProp }: { code?: string | null } = {}) {
     );
 
   if (watchId) return <GameView key={watchId} id={watchId} me={user.id} onExit={() => setWatchId(null)} />;
-  if (gameId) return <GameView key={gameId} id={gameId} me={user.id} onExit={(again) => { setGameId(null); refreshProfile(); if (again) { setTc(again); setWaited(0); setSearching(true); } }} />;
+  if (gameId) return <GameView key={gameId} id={gameId} me={user.id} onGame={(id) => { refreshProfile(); setGameId(id); }} onExit={(again) => { setGameId(null); refreshProfile(); if (again) { setTc(again); setWaited(0); setSearching(true); } }} />;
 
   return (
     <div className="mx-auto max-w-[1000px] space-y-8">
@@ -599,7 +653,7 @@ function clocks(g: OnlineGame, now: number) {
   return { w: g.white_ms - (whiteTurn ? spent : 0), b: g.black_ms - (whiteTurn ? 0 : spent) };
 }
 
-export function GameView({ id, me, onExit, inTournament = false }: { id: string; me: string; onExit: (again: string | null) => void; inTournament?: boolean }) {
+export function GameView({ id, me, onExit, onGame, inTournament = false }: { id: string; me: string; onExit: (again: string | null) => void; onGame?: (id: string) => void; inTournament?: boolean }) {
   const fmt = useSan();
   const [g, setG] = useState<OnlineGame | null>(null);
   const [names, setNames] = useState<Record<string, Pick<Profile, "username" | "rating">>>({});
@@ -852,6 +906,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
                 {!spectator && myChange != null && <p className={cn("mt-3 font-serif text-[22px] tabular-nums", myChange > 0 ? "text-good" : myChange < 0 ? "text-bad" : "text-ink-3")}>{myChange > 0 ? "+" : ""}{myChange} Elo</p>}
                 <div className="mt-6 grid gap-2">
                   <Link href="/review?game=custom" onClick={() => saveReviewPgn(pgn())} className="btn-primary py-3"><Microscope className="h-4 w-4" /> Analizar partida</Link>
+                  {!spectator && !inTournament && onGame && !g.disputed_by && <Rematch game={g.id} opponent={names[opp]?.username ?? "Tu rival"} onGame={onGame} />}
                   {!spectator && !inTournament && g.time_control !== "1d" && <button className="btn-ghost py-3" onClick={() => onExit(g.time_control)}><Search className="h-4 w-4" /> Otra partida de {g.time_control}</button>}
                   <button className="text-[13px] text-ink-3 underline-offset-4 hover:underline" onClick={() => onExit(null)}>{inTournament ? "Volver al torneo" : "Volver al inicio"}</button>
                 </div>
