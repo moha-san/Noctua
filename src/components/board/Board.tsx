@@ -152,8 +152,8 @@ export function Board({ player, onMove, interactive = true, premoves = true, ...
   const onMoveRef = useRef(onMove);
   onMoveRef.current = onMove;
 
+  // Al cambiar la posición se suelta la selección por clic (no la pieza que llevas en la mano)
   useEffect(() => {
-    setDrag(null);
     setSel(null);
     setMarks([]);
   }, [fen]);
@@ -324,6 +324,11 @@ export function Board({ player, onMove, interactive = true, premoves = true, ...
     return props.onPieceDrop?.(a) ?? false;
   };
 
+  // El tablero guarda el manejador de "soltar" del momento en que cogiste la pieza.
+  // Usamos siempre el más reciente: si el rival mueve mientras la llevas, al soltarla se juega con la posición nueva.
+  const dropRef = useRef(handleDrop);
+  dropRef.current = handleDrop;
+
   return (
     <div className={`aspect-square w-full select-none overflow-hidden${gameMode || props.onPieceDrop ? " touch-none" : ""} rounded-[4px] shadow-board`} onContextMenu={(e) => e.preventDefault()}>
       <Chessboard
@@ -366,7 +371,7 @@ export function Board({ player, onMove, interactive = true, premoves = true, ...
             setDrag(null);
             props.onPieceDragCancel?.();
           },
-          onPieceDrop: handleDrop,
+          onPieceDrop: (a) => dropRef.current(a),
           onSquareClick: handleClick,
           onSquareRightClick: (a) => {
             // Clic derecho: borra los premovimientos; si no hay, marca la casilla
