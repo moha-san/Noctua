@@ -314,6 +314,23 @@ create policy "ver mis partidas" on public.games for select using (true);
 revoke insert, update, delete on public.games from anon, authenticated;
 grant select on public.games to anon, authenticated;
 
+-- Datos para el juego limpio: tiempo de cada jugada, salidas de la pestaña y reclamaciones
+alter table public.games add column if not exists white_times int[] not null default '{}';
+alter table public.games add column if not exists black_times int[] not null default '{}';
+alter table public.games add column if not exists white_blur int not null default 0;
+alter table public.games add column if not exists black_blur int not null default 0;
+alter table public.games add column if not exists disputed_by uuid;
+alter table public.games add column if not exists dispute_reason text;
+alter table public.profiles add column if not exists banned boolean not null default false;
+
+create or replace function private.assert_fair() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if (select banned from public.profiles where id = auth.uid()) then
+    raise exception 'Tu cuenta está suspendida para jugar online por juego sucio. Escribe al club si crees que es un error.';
+  end if;
+end $$;
+
 -- Actualizaciones en tiempo real de las partidas
 do $$ begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
@@ -332,6 +349,7 @@ declare me public.profiles; opp public.mm_queue; g public.games; t record; exist
 begin
   if auth.uid() is null then raise exception 'Necesitas iniciar sesión'; end if;
   if p_tc not in ('10+0', '5+3', '3+2', '1+0', '15+10') then raise exception 'Ritmo no válido'; end if;
+  perform private.assert_fair();
   select * into existing from public.games where status = 'playing' and auth.uid() in (white, black) order by created_at desc limit 1;
   if existing.id is not null then return jsonb_build_object('game', existing.id); end if;
   select * into me from public.profiles where id = auth.uid();
@@ -403,6 +421,8 @@ begin
     g.black_ms := g.black_ms + case when n >= 2 then g.inc_ms else 0 end;
   end if;
   update public.games set moves = array_append(moves, p_san), white_ms = g.white_ms, black_ms = g.black_ms,
+    white_times = case when white_turn then array_append(white_times, elapsed) else white_times end,
+    black_times = case when white_turn then black_times else array_append(black_times, elapsed) end,
     last_move_at = now(), updated_at = now(), draw_offer = null where id = g.id returning * into g;
   if p_flag = 'checkmate' then return private.finish_game(g.id, case when white_turn then '1-0' else '0-1' end, 'Jaque mate'); end if;
   if p_flag in ('stalemate', 'draw') then return private.finish_game(g.id, '1/2-1/2', case p_flag when 'stalemate' then 'Rey ahogado' else 'Tablas' end); end if;
@@ -471,6 +491,7 @@ begin
   if auth.uid() is null then raise exception 'Necesitas iniciar sesión'; end if;
   if p_tc not in ('10+0', '5+3', '3+2', '1+0', '15+10') then raise exception 'Ritmo no válido'; end if;
   if p_color not in ('w', 'b', 'random') then raise exception 'Color no válido'; end if;
+  perform private.assert_fair();
   delete from public.challenges where (creator = auth.uid() and game is null) or created_at < now() - interval '1 day';
   loop
     -- Código corto y fácil de dictar (sin 0/O ni 1/I)
@@ -501,6 +522,7 @@ begin
   if ch.code is null then raise exception 'Ese código no existe o ha caducado'; end if;
   if ch.game is not null then return jsonb_build_object('game', ch.game); end if;
   if ch.creator = auth.uid() then raise exception 'No puedes aceptar tu propio reto: pásale el código a tu amigo'; end if;
+  perform private.assert_fair();
   if exists (select 1 from public.games where status = 'playing' and auth.uid() in (white, black)) then raise exception 'Ya tienes una partida en juego'; end if;
   t := private.tc_ms(ch.time_control);
   if ch.color = 'w' or (ch.color = 'random' and random() < 0.5) then w := ch.creator; b := auth.uid(); else w := auth.uid(); b := ch.creator; end if;
@@ -625,6 +647,7 @@ begin
   select * into t from public.tournaments where id = p_id;
   select * into me from public.tournament_players where tournament_id = p_id and user_id = auth.uid() for update;
   if me.user_id is null or not me.active then raise exception 'No estás apuntado a este torneo'; end if;
+  perform private.assert_fair();
   select * into existing from public.games where status = 'playing' and auth.uid() in (white, black) order by created_at desc limit 1;
   if existing.id is not null then return jsonb_build_object('game', existing.id); end if;
   if now() < t.starts_at then return jsonb_build_object('state', 'not_started'); end if;
@@ -890,6 +913,86 @@ begin
   insert into public.game_messages (game_id, user_id, body) values (p_game, auth.uid(), left(t, 200));
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Juego limpio (antitrampas)
+-- 1) La web de cada jugador comprueba con chess.js todas las jugadas del rival.
+--    Si llega una jugada ilegal o un final falso, reclama: la partida se anula (sin Elo).
+-- 2) Al terminar, la web del rival analiza la partida con Stockfish y envía la
+--    precisión y el % de jugadas iguales a las del motor.
+-- 3) Se guardan los tiempos de cada jugada y las salidas de la pestaña.
+-- Todo se revisa en private.fair_review (SQL Editor). Para suspender a alguien:
+--   update public.profiles set banned = true where username = 'nombre';
+-- ---------------------------------------------------------------------
+create table if not exists private.fair_reports (
+  game_id uuid not null references public.games (id) on delete cascade,
+  reporter uuid not null references auth.users (id) on delete cascade,
+  white_acc numeric, black_acc numeric, white_match numeric, black_match numeric,
+  created_at timestamptz not null default now(),
+  primary key (game_id, reporter)
+);
+
+create or replace function public.game_focus_lost(p_game uuid) returns void
+language sql security definer set search_path = public as $$
+  update public.games set
+    white_blur = white_blur + (auth.uid() = white)::int,
+    black_blur = black_blur + (auth.uid() = black)::int
+  where id = p_game and status = 'playing' and auth.uid() in (white, black);
+$$;
+
+create or replace function public.game_dispute(p_game uuid, p_reason text) returns public.games
+language plpgsql security definer set search_path = public, private as $$
+declare g public.games; c int;
+begin
+  select * into g from public.games where id = p_game for update;
+  if g.id is null or auth.uid() not in (g.white, g.black) then raise exception 'No puedes reclamar en esta partida'; end if;
+  if g.disputed_by is not null then return g; end if;
+  -- Se deshace el cambio de Elo si la partida ya había terminado
+  c := coalesce(g.rating_change, 0);
+  if g.status = 'finished' and c <> 0 then
+    update public.profiles set rating = rating - c where id = g.white;
+    update public.profiles set rating = rating + c where id = g.black;
+  end if;
+  update public.games set status = 'finished', result = null, rating_change = 0, disputed_by = auth.uid(),
+    dispute_reason = left(coalesce(p_reason, ''), 200), reason = 'Partida anulada: jugada no válida', updated_at = now()
+    where id = g.id returning * into g;
+  return g;
+end $$;
+
+create or replace function public.fair_report(p_game uuid, p_white_acc numeric, p_black_acc numeric, p_white_match numeric, p_black_match numeric) returns void
+language plpgsql security definer set search_path = public, private as $$
+declare g public.games;
+begin
+  select * into g from public.games where id = p_game;
+  if g.id is null or g.status <> 'finished' or auth.uid() not in (g.white, g.black) then return; end if;
+  if coalesce(array_length(g.moves, 1), 0) < 40 then return; end if;
+  insert into private.fair_reports (game_id, reporter, white_acc, black_acc, white_match, black_match)
+    values (p_game, auth.uid(), least(greatest(p_white_acc, 0), 100), least(greatest(p_black_acc, 0), 100), least(greatest(p_white_match, 0), 100), least(greatest(p_black_match, 0), 100))
+    on conflict do nothing;
+end $$;
+
+-- Resumen por jugador para revisar a mano. "sospechoso" = muchas partidas casi perfectas.
+drop view if exists private.fair_review;
+create view private.fair_review as
+with per_game as (
+  -- Solo cuenta el informe que hizo el rival (no el propio jugador)
+  select g.white as user_id, r.white_acc as acc, r.white_match as match, g.white_blur as blur, g.white_times as times
+    from private.fair_reports r join public.games g on g.id = r.game_id where r.reporter = g.black
+  union all
+  select g.black, r.black_acc, r.black_match, g.black_blur, g.black_times
+    from private.fair_reports r join public.games g on g.id = r.game_id where r.reporter = g.white
+), timing as (
+  select user_id, avg(t) as avg_ms, stddev_pop(t) as sd_ms from per_game, unnest(times) t where t > 0 group by user_id
+)
+select p.username, p.rating, p.banned, count(*) as partidas_analizadas,
+  round(avg(pg.acc), 1) as precision_media, round(avg(pg.match), 1) as coincidencia_motor, round(avg(pg.blur), 1) as salidas_pestana,
+  round(tm.avg_ms / 1000.0, 1) as segundos_por_jugada, round(tm.sd_ms / nullif(tm.avg_ms, 0), 2) as variacion_tiempos,
+  (select count(*) from public.games x where x.disputed_by is not null and p.id in (x.white, x.black) and x.disputed_by <> p.id) as reclamaciones_en_contra,
+  (select count(*) from public.games x where x.disputed_by = p.id) as reclamaciones_hechas,
+  (count(*) >= 5 and avg(pg.match) > 80 and avg(pg.acc) > 93) as sospechoso
+from per_game pg join public.profiles p on p.id = pg.user_id left join timing tm on tm.user_id = pg.user_id
+group by p.id, p.username, p.rating, p.banned, tm.avg_ms, tm.sd_ms
+order by sospechoso desc, coincidencia_motor desc;
+
 -- Permisos: la web solo puede llamar a estas funciones
 revoke all on all functions in schema private from anon, authenticated, public;
 revoke execute on all functions in schema public from anon, public;
@@ -899,7 +1002,8 @@ grant execute on function public.adm_status, public.adm_start, public.adm_puzzle
   public.tour_list, public.tour_join, public.tour_leave, public.tour_pair,
   public.update_bio, public.sync_achievements, public.profile_public,
   public.puzzle_submit_rush, public.puzzle_submit_daily, public.puzzle_board,
-  public.presence_ping, public.friend_request, public.friend_respond, public.friend_remove, public.friend_list, public.friend_challenge, public.game_chat to authenticated;
+  public.presence_ping, public.friend_request, public.friend_respond, public.friend_remove, public.friend_list, public.friend_challenge, public.game_chat,
+  public.game_focus_lost, public.game_dispute, public.fair_report to authenticated;
 grant execute on function public.tour_list, public.profile_public, public.puzzle_board to anon;
 grant execute on function public.adm_status to anon;
 

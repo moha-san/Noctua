@@ -12,6 +12,7 @@ import { playSound, soundForMove } from "@/lib/sound";
 import { saveReviewPgn, withHeaders } from "@/lib/reviewStore";
 import { Board } from "@/components/board/Board";
 import { GameChat } from "./GameChat";
+import { useFairPlay } from "./useFairPlay";
 import { PromotionPicker, type PromotionPiece } from "@/components/board/PromotionPicker";
 import { AuthPanel } from "@/components/account/AuthPanel";
 import { profileHref } from "@/components/profile/ProfilePage";
@@ -35,6 +36,7 @@ export type OnlineGame = {
   black_rating: number | null;
   rating_change: number | null;
   created_at: string;
+  disputed_by?: string | null;
 };
 
 const RITMOS = [
@@ -451,7 +453,7 @@ function RecentOnline({ me }: { me: string }) {
     if (!c) return;
     c.from("games").select("*").eq("status", "finished").or(`white.eq.${me},black.eq.${me}`).order("updated_at", { ascending: false }).limit(6)
       .then(async ({ data }) => {
-        const gs = (data ?? []) as OnlineGame[];
+        const gs = ((data ?? []) as OnlineGame[]).filter((x) => x.result);
         setRows(gs);
         const ids = [...new Set(gs.flatMap((g) => [g.white, g.black]))];
         if (ids.length) {
@@ -600,6 +602,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
   }, [moveCount]);
 
   const finished = g?.status === "finished";
+  useFairPlay(g, me, spectator, apply);
   useEffect(() => {
     if (finished) {
       playSound("end");
@@ -803,7 +806,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
           {finished && (
             <div className="absolute inset-0 grid place-items-center rounded-[4px] bg-black/45 p-6 backdrop-blur-[2px]">
               <div className="card w-full max-w-sm p-7 text-center">
-                <p className="font-serif text-[30px] text-ink">{spectator ? (g.result === "1/2-1/2" ? "Tablas" : `Ganan las ${g.result === "1-0" ? "blancas" : "negras"}`) : myScore === 1 ? "Has ganado" : myScore === 0.5 ? "Tablas" : "Has perdido"}</p>
+                <p className="font-serif text-[30px] text-ink">{g.disputed_by ? "Partida anulada" : spectator ? (g.result === "1/2-1/2" ? "Tablas" : `Ganan las ${g.result === "1-0" ? "blancas" : "negras"}`) : myScore === 1 ? "Has ganado" : myScore === 0.5 ? "Tablas" : "Has perdido"}</p>
                 <p className="mt-1 text-[14px] text-ink-3">{g.reason}</p>
                 {!spectator && myChange != null && <p className={cn("mt-3 font-serif text-[22px] tabular-nums", myChange > 0 ? "text-good" : myChange < 0 ? "text-bad" : "text-ink-3")}>{myChange > 0 ? "+" : ""}{myChange} Elo</p>}
                 <div className="mt-6 grid gap-2">
@@ -830,6 +833,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
               <button className="btn-ghost px-4 py-1.5 text-sm" onClick={() => onExit(null)}>Salir</button>
             </div>
           )}
+          {!spectator && g.status === "playing" && <p className="mt-1 text-[12px] text-ink-4">Juego limpio: se comprueban todas las jugadas y salir de la pestaña queda registrado.</p>}
           {g.status === "playing" && g.moves.length < 2 && <p className="mt-1 text-[13px] text-ink-3">El reloj empieza tras la primera jugada de cada uno. Hay 60 s para hacerla.</p>}
           {error && <p className="mt-3 text-[14px] text-bad" role="alert">{error}</p>}
           {!spectator && drawOffered && !finished && (
