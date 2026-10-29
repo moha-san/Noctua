@@ -12,6 +12,24 @@ import { RoundsLog, Standings } from "./Standings";
 import { TournamentGame } from "./TournamentGame";
 import { OnlineArenas } from "./OnlineArenas";
 import { backendConfigured } from "@/lib/backend/client";
+import { createCup, type CupState } from "@/lib/tournament/cup";
+import { CupRoom } from "./CupRoom";
+
+const CUP_KEY = "athenaeum-cup";
+function loadCup(): CupState | null {
+  try {
+    const raw = localStorage.getItem(CUP_KEY);
+    return raw ? (JSON.parse(raw) as CupState) : null;
+  } catch {
+    return null;
+  }
+}
+function saveCup(c: CupState | null) {
+  try {
+    if (c) localStorage.setItem(CUP_KEY, JSON.stringify(c));
+    else localStorage.removeItem(CUP_KEY);
+  } catch {}
+}
 
 const KEY = "athenaeum-swiss";
 
@@ -39,7 +57,15 @@ const STATUS = {
 export function TournamentHall() {
   const [t, setT] = useState<TournamentState | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  useEffect(() => setT(load()), []);
+  const [cup, setCup] = useState<CupState | null>(null);
+  useEffect(() => {
+    setT(load());
+    setCup(loadCup());
+  }, []);
+  const updateCup = (c: CupState | null) => {
+    setCup(c);
+    saveCup(c);
+  };
 
   const update = (next: TournamentState | null) => {
     setT(next);
@@ -47,6 +73,7 @@ export function TournamentHall() {
   };
 
   if (t) return <TournamentRoom t={t} onChange={update} />;
+  if (cup) return <CupRoom c={cup} onChange={updateCup} />;
 
   return (
     <div className="space-y-10">
@@ -96,6 +123,20 @@ export function TournamentHall() {
           );
         })}
       </div>
+      <article className="card flex flex-col p-7 ring-1 ring-gold/40 lg:max-w-[calc(50%-12px)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <span className="inline-block rounded-full border border-good/40 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-good">Siempre abierta</span>
+            <h3 className="mt-4 font-serif text-[26px] font-medium leading-tight text-ink">Copa Noctua</h3>
+            <p className="mt-1 font-serif text-[15px] italic text-ink-3">Eliminatoria · 10 min</p>
+          </div>
+          <Crown className="h-7 w-7 shrink-0 text-gold" strokeWidth={1.3} />
+        </div>
+        <p className="mt-4 text-[14px] leading-relaxed text-ink-3">Ocho jugadores, tres rondas: cuartos, semifinal y final. Una sola partida por ronda: si pierdes, quedas fuera. Si hay tablas, pasa quien juega con negras.</p>
+        <div className="mt-6">
+          <button className="btn-primary px-6 py-3" onClick={() => updateCup(createCup(USER.name, USER.ratings.rapid))}>Jugar la copa</button>
+        </div>
+      </article>
       {notice && <p className="animate-fade-up text-center font-serif text-[15px] italic text-gold">{notice}</p>}
     </div>
   );
