@@ -7,6 +7,7 @@ import { MobileNav } from "./MobileNav";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { Footer } from "./Footer";
+import { Presence } from "@/components/account/Presence";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -45,6 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Footer />
       </div>
       <MobileNav onOpenIndex={() => setMobileOpen(true)} />
+      <Presence />
     </div>
   );
 }

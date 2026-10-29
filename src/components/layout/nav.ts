@@ -1,4 +1,4 @@
-import { BarChart3, Info, ShieldCheck, GraduationCap, History, Settings, Crown, Dices, Home, Microscope, Puzzle, Swords, Trophy, Users, Wifi, Bot, Medal, UserRound, type LucideIcon } from "lucide-react";
+import { BarChart3, Info, ShieldCheck, GraduationCap, History, Settings, Crown, Dices, Home, Microscope, Puzzle, Swords, Trophy, Users, Wifi, Bot, Medal, UserRound, UsersRound, type LucideIcon } from "lucide-react";
 
 export type NavItem = {
   href: string;
@@ -28,6 +28,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/learn", label: "Aprender", short: "Aprender", group: "Entrenar", icon: GraduationCap, keywords: "aperturas finales lecciones explorador eco teoría" },
   { href: "/games", label: "Juegos de lógica", short: "Juegos", group: "Entrenar", icon: Dices, keywords: "nim cuadrado mágico hanói", mobile: true },
   { href: "/club", label: "Club", short: "Club", group: "Comunidad", icon: Users, keywords: "eventos calendario socios miembros" },
+  { href: "/friends", label: "Amigos", short: "Amigos", group: "Comunidad", icon: UsersRound, keywords: "amigos retar chat conectados" },
   { href: "/admission", label: "Prueba de admisión", short: "Admisión", group: "Comunidad", icon: ShieldCheck, keywords: "noctua entrar club prueba acceso" },
   { href: "/stats", label: "Estadísticas", short: "Estadísticas", group: "Comunidad", icon: BarChart3, keywords: "aperturas rendimiento" },
   { href: "/ranking", label: "Clasificación", short: "Ranking", group: "Comunidad", icon: Crown, keywords: "clasificación leaderboard rangos" },

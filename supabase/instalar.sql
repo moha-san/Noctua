@@ -773,6 +773,123 @@ language sql security definer set search_path = public as $$
   );
 $$;
 
+-- ---------------------------------------------------------------------
+-- Amigos, presencia y chat de partida
+-- ---------------------------------------------------------------------
+alter table public.profiles add column if not exists last_seen timestamptz;
+alter table public.challenges add column if not exists target uuid references auth.users (id) on delete cascade;
+
+create table if not exists public.friendships (
+  requester uuid not null references auth.users (id) on delete cascade,
+  addressee uuid not null references auth.users (id) on delete cascade,
+  status text not null default 'pending' check (status in ('pending', 'accepted')),
+  created_at timestamptz not null default now(),
+  primary key (requester, addressee),
+  check (requester <> addressee)
+);
+alter table public.friendships enable row level security;
+revoke all on public.friendships from anon, authenticated;
+
+create or replace function public.presence_ping() returns void
+language sql security definer set search_path = public as $$
+  update public.profiles set last_seen = now() where id = auth.uid();
+$$;
+
+create or replace function public.friend_request(p_username text) returns text
+language plpgsql security definer set search_path = public as $$
+declare other uuid;
+begin
+  if auth.uid() is null then raise exception 'Necesitas iniciar sesión'; end if;
+  select id into other from public.profiles where lower(username) = lower(trim(p_username));
+  if other is null then raise exception 'No existe ningún jugador con ese nombre'; end if;
+  if other = auth.uid() then raise exception 'No puedes añadirte a ti mismo'; end if;
+  -- Si el otro ya me lo había pedido, se acepta directamente
+  if exists (select 1 from public.friendships where requester = other and addressee = auth.uid()) then
+    update public.friendships set status = 'accepted' where requester = other and addressee = auth.uid();
+    return 'accepted';
+  end if;
+  if (select count(*) from public.friendships where requester = auth.uid() and status = 'pending') >= 30 then raise exception 'Tienes demasiadas solicitudes pendientes'; end if;
+  insert into public.friendships (requester, addressee) values (auth.uid(), other) on conflict do nothing;
+  return 'pending';
+end $$;
+
+create or replace function public.friend_respond(p_user uuid, p_accept boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_accept then
+    update public.friendships set status = 'accepted' where requester = p_user and addressee = auth.uid();
+  else
+    delete from public.friendships where requester = p_user and addressee = auth.uid();
+  end if;
+end $$;
+
+create or replace function public.friend_remove(p_user uuid) returns void
+language sql security definer set search_path = public as $$
+  delete from public.friendships where (requester = auth.uid() and addressee = p_user) or (requester = p_user and addressee = auth.uid());
+$$;
+
+create or replace function public.friend_list() returns jsonb
+language sql security definer set search_path = public as $$
+  select jsonb_build_object(
+    'friends', coalesce((select jsonb_agg(x order by x.online desc, x.username) from (
+      select p.id, p.username, p.rating, coalesce(p.last_seen > now() - interval '2 minutes', false) as online,
+        (select g.id from public.games g where g.status = 'playing' and p.id in (g.white, g.black) limit 1) as playing
+      from public.friendships f join public.profiles p on p.id = case when f.requester = auth.uid() then f.addressee else f.requester end
+      where f.status = 'accepted' and auth.uid() in (f.requester, f.addressee)) x), '[]'::jsonb),
+    'incoming', coalesce((select jsonb_agg(jsonb_build_object('id', p.id, 'username', p.username, 'rating', p.rating))
+      from public.friendships f join public.profiles p on p.id = f.requester where f.addressee = auth.uid() and f.status = 'pending'), '[]'::jsonb),
+    'outgoing', coalesce((select jsonb_agg(jsonb_build_object('id', p.id, 'username', p.username))
+      from public.friendships f join public.profiles p on p.id = f.addressee where f.requester = auth.uid() and f.status = 'pending'), '[]'::jsonb),
+    'challenges', coalesce((select jsonb_agg(jsonb_build_object('code', c.code, 'username', p.username, 'time_control', c.time_control))
+      from public.challenges c join public.profiles p on p.id = c.creator
+      where c.target = auth.uid() and c.game is null and c.created_at > now() - interval '30 minutes'), '[]'::jsonb)
+  );
+$$;
+
+-- Retar directamente a un amigo (le aparece en su lista)
+create or replace function public.friend_challenge(p_user uuid, p_tc text) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare r jsonb;
+begin
+  if not exists (select 1 from public.friendships where status = 'accepted' and ((requester = auth.uid() and addressee = p_user) or (requester = p_user and addressee = auth.uid()))) then
+    raise exception 'Solo puedes retar directamente a tus amigos';
+  end if;
+  r := public.challenge_create(p_tc, 'random');
+  update public.challenges set target = p_user where code = r ->> 'code';
+  return r;
+end $$;
+
+create table if not exists public.game_messages (
+  id bigserial primary key,
+  game_id uuid not null references public.games (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  body text not null check (char_length(body) between 1 and 200),
+  created_at timestamptz not null default now()
+);
+create index if not exists game_messages_game on public.game_messages (game_id, id);
+alter table public.game_messages enable row level security;
+drop policy if exists "chat de mis partidas" on public.game_messages;
+create policy "chat de mis partidas" on public.game_messages for select
+  using (exists (select 1 from public.games g where g.id = game_id and auth.uid() in (g.white, g.black)));
+revoke insert, update, delete on public.game_messages from anon, authenticated;
+grant select on public.game_messages to authenticated;
+do $$ begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    begin alter publication supabase_realtime add table public.game_messages; exception when duplicate_object then null; end;
+  end if;
+end $$;
+
+create or replace function public.game_chat(p_game uuid, p_text text) returns void
+language plpgsql security definer set search_path = public as $$
+declare t text := trim(regexp_replace(coalesce(p_text, ''), '\s+', ' ', 'g'));
+begin
+  if not exists (select 1 from public.games where id = p_game and auth.uid() in (white, black)) then raise exception 'Solo los jugadores pueden escribir en esta partida'; end if;
+  if char_length(t) = 0 then return; end if;
+  if exists (select 1 from public.game_messages where game_id = p_game and user_id = auth.uid() and created_at > now() - interval '1 second') then raise exception 'Espera un momento antes de escribir otra vez'; end if;
+  if (select count(*) from public.game_messages where game_id = p_game and user_id = auth.uid()) >= 60 then raise exception 'Has llegado al límite de mensajes de esta partida'; end if;
+  insert into public.game_messages (game_id, user_id, body) values (p_game, auth.uid(), left(t, 200));
+end $$;
+
 -- Permisos: la web solo puede llamar a estas funciones
 revoke all on all functions in schema private from anon, authenticated, public;
 revoke execute on all functions in schema public from anon, public;
@@ -781,7 +898,8 @@ grant execute on function public.adm_status, public.adm_start, public.adm_puzzle
   public.challenge_create, public.challenge_status, public.challenge_accept, public.challenge_cancel,
   public.tour_list, public.tour_join, public.tour_leave, public.tour_pair,
   public.update_bio, public.sync_achievements, public.profile_public,
-  public.puzzle_submit_rush, public.puzzle_submit_daily, public.puzzle_board to authenticated;
+  public.puzzle_submit_rush, public.puzzle_submit_daily, public.puzzle_board,
+  public.presence_ping, public.friend_request, public.friend_respond, public.friend_remove, public.friend_list, public.friend_challenge, public.game_chat to authenticated;
 grant execute on function public.tour_list, public.profile_public, public.puzzle_board to anon;
 grant execute on function public.adm_status to anon;
 

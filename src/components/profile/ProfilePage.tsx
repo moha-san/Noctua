@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Chess } from "chess.js";
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Lock, Medal, Microscope, Pencil, ShieldCheck, Swords, Trophy } from "lucide-react";
+import { CalendarDays, Lock, Medal, Microscope, Pencil, ShieldCheck, Swords, Trophy, UserPlus } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { backendConfigured, rpc } from "@/lib/backend/client";
 import { refreshProfile, useAuth } from "@/hooks/useAuth";
@@ -222,8 +222,9 @@ export function ProfilePage({ username: usernameProp }: { username?: string | nu
               </div>
             )}
           </div>
+          {!mine && user && <AddFriend username={p.username} />}
           {!mine && user && (
-            <Link href="/online" className="btn-primary w-full py-3"><Swords className="h-4 w-4" /> Jugar online</Link>
+            <Link href="/online" className="btn-ghost w-full py-3"><Swords className="h-4 w-4" /> Jugar online</Link>
           )}
         </aside>
       </div>
@@ -259,6 +260,29 @@ function EloLine({ points }: { points: number[] }) {
         <span>{points[0]}</span>
         <span>Ahora {points[points.length - 1]}</span>
       </div>
+    </div>
+  );
+}
+
+function AddFriend({ username }: { username: string }) {
+  const [state, setState] = useState<string | null>(null);
+  return (
+    <div>
+      <button
+        className="btn-primary w-full py-3"
+        disabled={!!state && state !== "error"}
+        onClick={async () => {
+          try {
+            const r = await rpc<string>("friend_request", { p_username: username });
+            setState(r);
+          } catch {
+            setState("error");
+          }
+        }}
+      >
+        <UserPlus className="h-4 w-4" /> {state === "pending" ? "Solicitud enviada" : state === "accepted" ? "Ya sois amigos" : "Añadir a amigos"}
+      </button>
+      {state === "error" && <p className="mt-2 text-center text-[13px] text-bad">No se pudo enviar la solicitud.</p>}
     </div>
   );
 }

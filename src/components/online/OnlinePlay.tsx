@@ -11,6 +11,7 @@ import { fmtClock } from "@/lib/play/levels";
 import { playSound, soundForMove } from "@/lib/sound";
 import { saveReviewPgn, withHeaders } from "@/lib/reviewStore";
 import { Board } from "@/components/board/Board";
+import { GameChat } from "./GameChat";
 import { PromotionPicker, type PromotionPiece } from "@/components/board/PromotionPicker";
 import { AuthPanel } from "@/components/account/AuthPanel";
 import { profileHref } from "@/components/profile/ProfilePage";
@@ -871,6 +872,7 @@ export function GameView({ id, me, onExit, inTournament = false }: { id: string;
             </ol>
           )}
         </div>
+        {!spectator && <GameChat gameId={g.id} me={me} names={Object.fromEntries(Object.entries(names).map(([k, v]) => [k, v.username]))} />}
       </aside>
     </div>
   );

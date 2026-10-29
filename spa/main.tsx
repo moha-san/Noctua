@@ -17,6 +17,7 @@ import { ClubPage } from "@/components/club/ClubPage";
 import RankingPage from "@/app/(app)/ranking/page";
 import { AchievementsPage } from "@/components/achievements/AchievementsPage";
 import { ProfilePage } from "@/components/profile/ProfilePage";
+import { FriendsPage } from "@/components/friends/FriendsPage";
 import { OnlinePlay } from "@/components/online/OnlinePlay";
 import { useRoute } from "./shims/router";
 
@@ -26,6 +27,7 @@ function App() {
   let page: React.ReactNode;
   if (path === "/play") page = <PlayVsEngine />;
   else if (path === "/online") page = <OnlinePlay key={extra ?? ""} code={extra} />;
+  else if (path === "/friends") page = <FriendsPage />;
   else if (path === "/profile") page = <ProfilePage key={extra ?? ""} username={extra} />;
   else if (path === "/achievements") page = <AchievementsPage />;
   else if (path === "/review") {
